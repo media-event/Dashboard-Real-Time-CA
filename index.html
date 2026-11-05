@@ -27,7 +27,7 @@
                 </div>
                 <div>
                     <h1 class="text-xl font-bold text-white tracking-tight">Dashboard Monitoring CA</h1>
-                    <p class="text-xs text-slate-400">Monitoring Realtime Data Credit, Project Owner, & Lokasi Indonesia</p>
+                    <p class="text-xs text-slate-400">Monitoring Realtime Data Credit, Project Owner, &amp; Lokasi Indonesia</p>
                 </div>
             </div>
 
@@ -116,7 +116,7 @@
                     </div>
 
                     <div class="mt-2.5 pb-2 border-b border-slate-700/60">
-                        <p class="text-[10px] text-indigo-400 uppercase font-semibold tracking-wider mb-1">BREAKDOWN PRODUCT (KOLOM G / Product):</p>
+                        <p class="text-[10px] text-indigo-400 uppercase font-semibold tracking-wider mb-1">BREAKDOWN PRODUCT:</p>
                         <div id="kpi-product-breakdown" class="space-y-1 text-xs">
                             <span class="text-slate-500 italic">Memuat data...</span>
                         </div>
@@ -167,7 +167,7 @@
                             <span id="ar30-pct" class="text-xs text-slate-400 font-medium">0%</span>
                         </div>
                         <div class="text-center">
-                            <span class="text-xs text-rose-400 font-bold block">AR &gt; 90</span>
+                            <span class="text-xs text-rose-400 font-bold block">AR &gt; 60</span>
                             <span id="ar60-val" class="text-base font-extrabold text-white block mt-0.5">0 Kr</span>
                             <span id="ar60-pct" class="text-xs text-slate-400 font-medium">0%</span>
                         </div>
@@ -182,7 +182,7 @@
                         </div>
                     </div>
                     <div class="pt-2 border-t border-slate-700/50">
-                        <p class="text-xs text-amber-400 uppercase font-bold tracking-wider mb-1">Top 3 Brand Unit (AR &gt; 7 / &gt; 30 / &gt; 90):</p>
+                        <p class="text-xs text-amber-400 uppercase font-bold tracking-wider mb-1">Top 3 Brand Unit (AR &gt; 7 / &gt; 30 / &gt; 60):</p>
                         <div id="ar-top3-brand" class="space-y-1 text-slate-200">
                             <span class="text-slate-500 italic">Memuat data...</span>
                         </div>
@@ -377,7 +377,7 @@
         <section class="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-5 shadow-sm">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                 <h2 class="text-base font-semibold text-white flex items-center gap-2">
-                    <i class="fa-solid fa-table-list text-slate-400"></i> Rincian Database Unit & Proyek (DATA CREDIT)
+                    <i class="fa-solid fa-table-list text-slate-400"></i> Rincian Database Unit &amp; Proyek
                 </h2>
                 <div class="flex items-center gap-2">
                     <span id="table-row-count" class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg">0 Baris</span>
@@ -395,7 +395,7 @@
                             <th class="px-3 py-3">NO KONTRAK</th>
                             <th class="px-3 py-3">NAMA CUSTOMER</th>
                             <th class="px-3 py-3 text-center">TOTAL KONTRAK</th>
-                            <th class="px-3 py-3">BTM / UNIT</th>
+                            <th class="px-3 py-3">BRAND / UNIT</th>
                             <th class="px-3 py-3">PRODUCT</th>
                             <th class="px-3 py-3">CONTRACT STATUS</th>
                             <th class="px-3 py-3">PROJECT OWNER</th>
@@ -411,10 +411,12 @@
     </main>
 
     <script>
-        // URL KHUSUS TAB DATA CREDIT (menggunakan gviz API agar membaca sheet DATA CREDIT secara tepat)
         const SPREADSHEET_ID = '1VUCL0zZIhNrc6X3bhWJL_hIDrKnhZXJm38DPCM2YHMU';
-        const SHEET_NAME_CREDIT = 'DATA CREDIT';
-        const GOOGLE_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME_CREDIT)}`;
+        
+        // MENGGUNAKAN ID TAB (GID) RESMI GOOGLE SHEETS
+        // GID Tab 'DATA CREDIT' (0) atau Fallback Tab AR Info (1098227073)
+        const GID_DATA_CREDIT = '0'; 
+        const GOOGLE_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_DATA_CREDIT}`;
 
         let rawData = [];
         let filteredData = [];
@@ -517,65 +519,70 @@
             });
         }
 
-        // FUNGSI PEMBACAAN KOLOM TAB DATA CREDIT
+        // DYNAMIC FIELD EXTRACTOR (Support Tab 'DATA CREDIT' & Tab 'AR Info')
         function getFieldValue(row, fieldType) {
             if (!row) return '';
             const keys = Object.keys(row);
 
             if (fieldType === 'no_kontrak') {
-                const key = keys.find(k => /NO_KONTRAK|NO KONTRAK|^A$/i.test(k.trim()));
+                const key = keys.find(k => /NO_KONTRAK|NO KONTRAK|^KONTRAK$|^A$|^B$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
             if (fieldType === 'customer') {
-                const key = keys.find(k => /NAMA_CUSTOMER|NAMA CUSTOMER|CUSTOMER|^D$/i.test(k.trim()));
+                const key = keys.find(k => /NAMA_CUSTOMER|NAMA CUSTOMER|CUSTOMER|^D$|^E$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
             
-            // KOLOM G : Product (ABF, FAC, dll.)
             if (fieldType === 'product') {
-                const key = keys.find(k => /^Product$/i.test(k.trim()) || /^G$/i.test(k.trim()));
+                const key = keys.find(k => /^Product$/i.test(k.trim()) || /^OBJ$/i.test(k.trim()) || /^G$|^F$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : 'OTHER';
             }
 
-            // KOLOM E : BTM (Model/Nama Unit)
-            if (fieldType === 'btm') {
-                const key = keys.find(k => /^BTM$/i.test(k.trim()) || /^E$/i.test(k.trim()));
-                return key ? String(row[key]).trim() : '-';
+            if (fieldType === 'brand_unit') {
+                const key = keys.find(k => /^BTM$/i.test(k.trim()) || /^NAMA_UNIT$/i.test(k.trim()) || /^E$|^G$/i.test(k.trim()) || /BRAND|MERK/i.test(k.trim()));
+                let val = key ? String(row[key]).trim() : '';
+                if (val) {
+                    const brandMatch = val.match(/^(ISUZU|HINO|MITSUBISHI|KOBELCO|XCMG|JCB|SANY|CAT|CATERPILLAR|KOMATSU|UD TRUCKS|UD|SHACMAN|VOLVO|DAIHATSU|TOYOTA|SANWARD|HELI|LIUGONG|ZOOMLION|MERCEDES|MERCY|FAW|ZOMLION|SUMITOMO)/i);
+                    if (brandMatch) {
+                        let matched = brandMatch[0].toUpperCase();
+                        if (matched === 'MERCY') return 'MERCEDES';
+                        if (matched === 'CATERPILLAR') return 'CAT';
+                        return matched;
+                    }
+                    const firstWord = val.split(' ')[0].trim().toUpperCase();
+                    if (firstWord.length > 1) return firstWord;
+                }
+                return val || '-';
             }
 
-            // KOLOM J : Project Owner
             if (fieldType === 'owner') {
-                const key = keys.find(k => /^Project Owner$/i.test(k.trim()) || /^J$/i.test(k.trim()));
+                const key = keys.find(k => /Project Owner|PROJECT_OWNER|OWNER|^J$|^AG$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
 
-            // KOLOM M : Lokasi Project (Provinsi)
             if (fieldType === 'lokasi') {
-                const key = keys.find(k => /Lokasi Project \(Provinsi\)|^M$/i.test(k.trim()));
+                const key = keys.find(k => /Lokasi Project \(Provinsi\)|PROVINSI|WILAYAH|^M$|^AH$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : 'Lainnya';
             }
 
-            // KOLOM N : Segment
             if (fieldType === 'segment') {
-                const key = keys.find(k => /^Segment$/i.test(k.trim()) || /^N$/i.test(k.trim()));
+                const key = keys.find(k => /Segment|SEGMENT|INDUSTRI|^N$|^AI$/i.test(k.trim()));
                 return key ? normalizeSegmentName(row[key]) : '';
             }
             
-            // AR > 7 (KOLOM S), AR > 30 (KOLOM T), AR > 90 (KOLOM U)
             if (fieldType === 'ar7') {
-                const key = keys.find(k => /AR\s*>\s*7|^S$/i.test(k.trim()));
+                const key = keys.find(k => /AR\s*>\s*7|AR7|^S$|^W$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
             if (fieldType === 'ar30') {
-                const key = keys.find(k => /AR\s*>\s*30|^T$/i.test(k.trim()));
+                const key = keys.find(k => /AR\s*>\s*30|AR30|^T$|^X$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
-            if (fieldType === 'ar90' || fieldType === 'ar60') {
-                const key = keys.find(k => /AR\s*>\s*90|^U$/i.test(k.trim()));
+            if (fieldType === 'ar60' || fieldType === 'ar90') {
+                const key = keys.find(k => /AR\s*>\s*60|AR\s*>\s*90|AR60|^U$|^Y$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
 
-            // MAX_OVD (KOLOM AB) & TOT_OVD (KOLOM AC)
             if (fieldType === 'max_ovd') {
                 const key = keys.find(k => /^MAX_OVD$/i.test(k.trim()) || /^AB$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
@@ -585,32 +592,29 @@
                 return key ? parseNumberOnly(row[key]) : 0;
             }
 
-            // KOLOM W : CONTRACT_STATUS
             if (fieldType === 'contract_status') {
-                const key = keys.find(k => /^CONTRACT_STATUS$/i.test(k.trim()) || /^W$/i.test(k.trim()));
+                const key = keys.find(k => /^CONTRACT_STATUS$/i.test(k.trim()) || /^CONTRACT_STA$/i.test(k.trim()) || /^W$|^T$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
 
-            // KOLOM X : AF Kontrak & KOLOM Y : AF Outstanding
             if (fieldType === 'af_kontrak') {
-                const key = keys.find(k => /^AF Kontrak$/i.test(k.trim()) || /^X$/i.test(k.trim()));
+                const key = keys.find(k => /^AF Kontrak$/i.test(k.trim()) || /^AF_KONTRAK$/i.test(k.trim()) || /^X$|^M$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '0';
             }
             if (fieldType === 'outstanding') {
-                const key = keys.find(k => /^AF Outstanding$/i.test(k.trim()) || /^Y$/i.test(k.trim()));
+                const key = keys.find(k => /^AF Outstanding$/i.test(k.trim()) || /^AF_OUTSTANDING$/i.test(k.trim()) || /^OUTSTANDING$/i.test(k.trim()) || /^Y$|^N$|^P$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '0';
             }
 
-            // KOLOM R (Tanggal Booking) atau KOLOM AA (Contract Date)
             if (fieldType === 'contract_date') {
-                const key = keys.find(k => /^Tanggal Booking$/i.test(k.trim()) || /^Contract Date$/i.test(k.trim()) || /^R$/i.test(k.trim()) || /^AA$/i.test(k.trim()));
+                const key = keys.find(k => /Tanggal Booking|Contract Date|TANGGAL_KONTRAK|^R$|^AA$|^A$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
             return '';
         }
 
         function normalizeContractStatus(rawStatus) {
-            if (!rawStatus) return 'AC';
+            if (!rawStatus) return 'AC'; 
             const s = String(rawStatus).toUpperCase().trim();
             if (s === 'AC' || s.includes('ACTIVE') || s.includes('AKTIF') || s === '1') return 'AC';
             if (s === 'CL' || s.includes('CLOSE') || s.includes('CLOSED') || s.includes('SELESAI')) return 'CL';
@@ -620,7 +624,7 @@
         }
 
         function fetchGoogleSheetData() {
-            updateSyncUI('loading', 'Menghubungkan ke Tab DATA CREDIT...');
+            updateSyncUI('loading', 'Menghubungkan ke Google Sheet...');
 
             Papa.parse(GOOGLE_CSV_URL, {
                 download: true,
@@ -629,7 +633,7 @@
                 complete: function(results) {
                     if (results.data && results.data.length > 0) {
                         rawData = results.data;
-                        updateSyncUI('success', `Tersambung Live DATA CREDIT (${rawData.length} baris)`);
+                        updateSyncUI('success', `Tersambung Live (${rawData.length} baris)`);
                         processDataAndRender();
                     } else {
                         updateSyncUI('error', 'Gagal memuat data');
@@ -700,7 +704,7 @@
             filteredData = rawData.filter(row => {
                 const rowCust = getFieldValue(row, 'customer');
                 const rowProd = getFieldValue(row, 'product');
-                const rowBtm = getFieldValue(row, 'btm');
+                const rowBrand = getFieldValue(row, 'brand_unit');
                 const rowOwner = getFieldValue(row, 'owner');
                 const rowLokasi = getFieldValue(row, 'lokasi');
                 const rowSeg = getFieldValue(row, 'segment');
@@ -711,7 +715,7 @@
                 const matchSeg = !segVal || rowSeg === segVal;
                 const matchCust = !custVal || rowCust === custVal;
                 const matchLok = !lokVal || rowLokasi === lokVal;
-                const searchHaystack = `${rowCust} ${rowOwner} ${rowProd} ${rowBtm} ${rowLokasi} ${rowSeg} ${rowKontrak} ${rowStatus}`.toLowerCase();
+                const searchHaystack = `${rowCust} ${rowOwner} ${rowProd} ${rowBrand} ${rowLokasi} ${rowSeg} ${rowKontrak} ${rowStatus}`.toLowerCase();
                 const matchSearch = !searchVal || searchHaystack.includes(searchVal);
 
                 return matchStatus && matchSeg && matchCust && matchLok && matchSearch;
@@ -917,7 +921,7 @@
             const totalArBase = arBaseData.length;
             let ar7Count = 0, ar30Count = 0, ar60Count = 0;
 
-            const btmArMap = { 7: {}, 30: {}, 60: {} };
+            const brandArMap = { 7: {}, 30: {}, 60: {} };
             const goodPayerMap = {};
             const worstPayerMap = {};
 
@@ -930,7 +934,7 @@
                 const totOvd = getFieldValue(row, 'tot_ovd');
 
                 const cName = formatEntityDisplay(getFieldValue(row, 'customer') || 'Unknown');
-                const bName = getFieldValue(row, 'btm');
+                const bName = getFieldValue(row, 'brand_unit');
 
                 const rawAfRow = getFieldValue(row, 'af_kontrak');
                 const afNumRow = parseCurrencyNumber(rawAfRow);
@@ -940,19 +944,19 @@
                 if (val7 >= 1) {
                     ar7Count++;
                     if (bName && bName !== '-') {
-                        btmArMap[7][bName] = (btmArMap[7][bName] || 0) + 1;
+                        brandArMap[7][bName] = (brandArMap[7][bName] || 0) + 1;
                     }
                 }
                 if (val30 >= 1) {
                     ar30Count++;
                     if (bName && bName !== '-') {
-                        btmArMap[30][bName] = (btmArMap[30][bName] || 0) + 1;
+                        brandArMap[30][bName] = (brandArMap[30][bName] || 0) + 1;
                     }
                 }
                 if (val60 >= 1) {
                     ar60Count++;
                     if (bName && bName !== '-') {
-                        btmArMap[60][bName] = (btmArMap[60][bName] || 0) + 1;
+                        brandArMap[60][bName] = (brandArMap[60][bName] || 0) + 1;
                     }
                 }
 
@@ -1055,24 +1059,24 @@
                 }
             }
 
-            const top3Btm7 = Object.entries(btmArMap[7]).sort((a,b)=>b[1]-a[1]).slice(0,3);
-            const top3Btm30 = Object.entries(btmArMap[30]).sort((a,b)=>b[1]-a[1]).slice(0,3);
-            const top3Btm60 = Object.entries(btmArMap[60]).sort((a,b)=>b[1]-a[1]).slice(0,3);
+            const top3Brand7 = Object.entries(brandArMap[7]).sort((a,b)=>b[1]-a[1]).slice(0,3);
+            const top3Brand30 = Object.entries(brandArMap[30]).sort((a,b)=>b[1]-a[1]).slice(0,3);
+            const top3Brand60 = Object.entries(brandArMap[60]).sort((a,b)=>b[1]-a[1]).slice(0,3);
 
             const brandContainer = document.getElementById('ar-top3-brand');
             brandContainer.innerHTML = `
                 <div class="space-y-1">
                     <div class="flex items-center justify-between text-xs border-b border-slate-800 pb-0.5">
                         <span class="text-yellow-400 font-semibold">&gt;7 Days:</span>
-                        <span class="text-slate-200 font-mono">${top3Btm7.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
+                        <span class="text-slate-200 font-mono">${top3Brand7.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
                     </div>
                     <div class="flex items-center justify-between text-xs border-b border-slate-800 pb-0.5">
                         <span class="text-amber-400 font-semibold">&gt;30 Days:</span>
-                        <span class="text-slate-200 font-mono">${top3Btm30.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
+                        <span class="text-slate-200 font-mono">${top3Brand30.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
                     </div>
                     <div class="flex items-center justify-between text-xs">
-                        <span class="text-rose-400 font-semibold">&gt;90 Days:</span>
-                        <span class="text-slate-200 font-mono">${top3Btm60.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
+                        <span class="text-rose-400 font-semibold">&gt;60 Days:</span>
+                        <span class="text-slate-200 font-mono">${top3Brand60.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
                     </div>
                 </div>
             `;
@@ -1394,7 +1398,7 @@
             tbody.innerHTML = filteredData.map((row, index) => {
                 const noKontrak = getFieldValue(row, 'no_kontrak') || '-';
                 const cust = getFieldValue(row, 'customer') || '-';
-                const btm = getFieldValue(row, 'btm') || '-';
+                const brand = getFieldValue(row, 'brand_unit') || '-';
                 const product = getFieldValue(row, 'product') || '-';
                 const statusAgree = getFieldValue(row, 'contract_status') || 'AC';
                 const owner = getFieldValue(row, 'owner') || '-';
@@ -1423,7 +1427,7 @@
                     <td class="px-3 py-2.5 font-mono text-[11px] text-cyan-400">${escapeHtml(noKontrak)}</td>
                     <td class="px-3 py-2.5 font-medium text-slate-100">${escapeHtml(formatEntityDisplay(cust))}</td>
                     <td class="px-3 py-2.5 text-center font-bold text-amber-400 font-mono text-[11px]">${totalKontrakCustomer} Kontrak</td>
-                    <td class="px-3 py-2.5 font-bold text-amber-300 font-mono text-[11px]">${escapeHtml(btm)}</td>
+                    <td class="px-3 py-2.5 font-bold text-amber-300 font-mono text-[11px]">${escapeHtml(brand)}</td>
                     <td class="px-3 py-2.5 text-indigo-300 font-mono text-[11px]">${escapeHtml(product)}</td>
                     <td class="px-3 py-2.5">${statusBadge}</td>
                     <td class="px-3 py-2.5 text-amber-300">${escapeHtml(formatEntityDisplay(owner))}</td>
@@ -1446,7 +1450,7 @@
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.setAttribute('download', `Export_Bowheer_DATA_CREDIT.csv`);
+            link.setAttribute('download', `Export_Bowheer_CA.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
