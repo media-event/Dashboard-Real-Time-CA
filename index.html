@@ -116,7 +116,7 @@
                     </div>
 
                     <div class="mt-2.5 pb-2 border-b border-slate-700/60">
-                        <p class="text-[10px] text-indigo-400 uppercase font-semibold tracking-wider mb-1">BREAKDOWN PRODUCT:</p>
+                        <p class="text-[10px] text-indigo-400 uppercase font-semibold tracking-wider mb-1">BREAKDOWN PRODUCT (KOLOM F / OBJ):</p>
                         <div id="kpi-product-breakdown" class="space-y-1 text-xs">
                             <span class="text-slate-500 italic">Memuat data...</span>
                         </div>
@@ -131,7 +131,7 @@
                 </div>
             </div>
 
-            <!-- AR INFO DENGAN TOGGLE SUB HEADER GOOD VS WORST PAYERS -->
+            <!-- AR INFO & PERFORMANCE CARD -->
             <div class="lg:col-span-7 bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 relative overflow-hidden flex flex-col justify-between">
                 <div>
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
@@ -413,14 +413,16 @@
     </main>
 
     <script>
+        // URL KHUSUS TAB AR Info 2/11/26 (gid=1098227073)
         const SPREADSHEET_ID = '1VUCL0zZIhNrc6X3bhWJL_hIDrKnhZXJm38DPCM2YHMU';
-        const GOOGLE_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=0`;
+        const GID_AR_INFO = '1098227073';
+        const GOOGLE_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_AR_INFO}`;
 
         let rawData = [];
         let filteredData = [];
         let currentArFilter = 'ALL';
         let currentProvFilter = 'ALL';
-        let customerViewMode = 'GOOD'; // Default ke GOOD PAYERS
+        let customerViewMode = 'GOOD'; // 'GOOD' atau 'WORST'
 
         let chartCustomer = null;
         let chartOwner = null;
@@ -431,7 +433,7 @@
             fetchGoogleSheetData();
         });
 
-        // PARSER ANGKA RUPIAH PRESISI
+        // PARSER ANGKA CURRENCY PRESISI (HILANGKAN RP, TITIK/KOMA DESIMAL)
         function parseCurrencyNumber(valStr) {
             if (!valStr || valStr === '-' || valStr === 'null' || valStr === 'undefined') return 0;
             let str = String(valStr).replace(/Rp|RP|\s/g, '').trim();
@@ -459,17 +461,28 @@
             return match ? parseInt(match[0], 10) : 0;
         }
 
-        function extractYearFromDate(dateStr) {
-            if (!dateStr) return 'Lainnya';
-            const str = String(dateStr).trim();
-            const yearMatch = str.match(/\b(20\d{2}|19\d{2})\b/);
-            if (yearMatch) return yearMatch[1];
-            
-            const slashParts = str.split('/');
-            if (slashParts.length === 3) {
-                let yr = slashParts[2].split(' ')[0].trim();
-                if (yr.length === 2) return '20' + yr;
-                if (yr.length === 4) return yr;
+        function extractYearFromRow(row) {
+            // Priority 1: Kolom H (Tahun Booking/Kontrak)
+            const keys = Object.keys(row);
+            const keyH = keys.find(k => /^H$/i.test(k.trim()) || /TAHUN|YEAR/i.test(k));
+            if (keyH && row[keyH]) {
+                const yrStr = String(row[keyH]).trim();
+                if (/^\d{4}$/.test(yrStr)) return yrStr;
+            }
+
+            // Priority 2: Ekstrak dari Kolom A (Tanggal Booking/Contract Date)
+            const dateVal = getFieldValue(row, 'contract_date');
+            if (dateVal) {
+                const str = String(dateVal).trim();
+                const yearMatch = str.match(/\b(20\d{2}|19\d{2})\b/);
+                if (yearMatch) return yearMatch[1];
+                
+                const slashParts = str.split('/');
+                if (slashParts.length === 3) {
+                    let yr = slashParts[2].split(' ')[0].trim();
+                    if (yr.length === 2) return '20' + yr;
+                    if (yr.length === 4) return yr;
+                }
             }
             return 'Lainnya';
         }
@@ -518,36 +531,31 @@
             });
         }
 
-        // PEMBACAAN FIELD DENGAN FALLBACK PINTAR UNTUK BRAND & KOLOM BARU MAX_OVD / TOT_OVD
+        // METODE EXTRACTION HEADER PRESISI TAB AR INFO
         function getFieldValue(row, fieldType) {
             if (!row) return '';
             const keys = Object.keys(row);
 
             if (fieldType === 'no_kontrak') {
-                const key = keys.find(k => /NO_KONTRAK|NO KONTRAK|^KONTRAK$/i.test(k));
+                const key = keys.find(k => /NO_KONTRAK|NO KONTRAK|^KONTRAK$|^B$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
             if (fieldType === 'customer') {
-                const key = keys.find(k => /NAMA_CUSTOMER|NAMA CUSTOMER|CUSTOMER|Group Customer/i.test(k));
+                const key = keys.find(k => /NAMA_CUSTOMER|NAMA CUSTOMER|CUSTOMER|^E$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
             
-            // BRAND UNIT FALLBACK LOGIC
+            // BREAKDOWN PRODUCT HANYA DARI KOLOM F (OBJ) SENSITIF
+            if (fieldType === 'product') {
+                const key = keys.find(k => /^OBJ$/i.test(k.trim()) || /^F$/i.test(k.trim()) || /^PRODUCT$/i.test(k.trim()));
+                return key ? String(row[key]).trim() : 'OTHER';
+            }
+
             if (fieldType === 'brand_unit') {
-                let key = keys.find(k => /^BRAND$/i.test(k.trim())) || 
-                          keys.find(k => /BRAND_UNIT|BRAND UNIT|^MERK$/i.test(k.trim()));
-                
+                const key = keys.find(k => /^NAMA_UNIT$/i.test(k.trim()) || /^G$/i.test(k.trim()) || /BRAND|MERK/i.test(k.trim()));
                 let val = key ? String(row[key]).trim() : '';
-                const isFacility = /^(ABF|FAC|FACTORING|FMU|GENERAL|FINANCING|AR FINANCING|-|NULL|UNDEFINED)$/i;
-
-                if (!val || isFacility.test(val)) {
-                    const btmKey = keys.find(k => /^BTM$/i.test(k.trim())) || 
-                                   keys.find(k => /NAMA_UNIT|DESKRIPSI_UNIT|UNIT/i.test(k.trim()));
-                    val = btmKey ? String(row[btmKey]).trim() : '';
-                }
-
-                if (val && !isFacility.test(val)) {
-                    const brandMatch = val.match(/^(ISUZU|HINO|MITSUBISHI|KOBELCO|XCMG|JCB|SANY|CAT|CATERPILLAR|KOMATSU|UD TRUCKS|UD|SHACMAN|VOLVO|DAIHATSU|TOYOTA|SANWARD|HELI|LIUGONG|ZOOMLION|MERCEDES|MERCY|FAW|ZOMLION)/i);
+                if (val) {
+                    const brandMatch = val.match(/^(ISUZU|HINO|MITSUBISHI|KOBELCO|XCMG|JCB|SANY|CAT|CATERPILLAR|KOMATSU|UD TRUCKS|UD|SHACMAN|VOLVO|DAIHATSU|TOYOTA|SANWARD|HELI|LIUGONG|ZOOMLION|MERCEDES|MERCY|FAW|ZOMLION|SUMITOMO)/i);
                     if (brandMatch) {
                         let matched = brandMatch[0].toUpperCase();
                         if (matched === 'MERCY') return 'MERCEDES';
@@ -555,92 +563,82 @@
                         return matched;
                     }
                     const firstWord = val.split(' ')[0].trim().toUpperCase();
-                    if (firstWord.length > 1 && !isFacility.test(firstWord)) {
-                        return firstWord;
-                    }
+                    if (firstWord.length > 1) return firstWord;
                 }
                 return '-';
             }
 
-            if (fieldType === 'product') {
-                const key = keys.find(k => /^Product$/i.test(k.trim())) || keys.find(k => /^BTM$/i.test(k.trim()));
-                return key ? String(row[key]).trim() : '';
-            }
-
             if (fieldType === 'owner') {
-                const key = keys.find(k => /PROJECT OWNER|PROJECT_OWNER|OWNER/i.test(k));
+                const key = keys.find(k => /PROJECT OWNER|PROJECT_OWNER|OWNER|^AG$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
 
             if (fieldType === 'lokasi') {
-                const key = keys.find(k => /Lokasi Project \(Provinsi\)|PROVINSI/i.test(k.trim())) ||
-                            keys.find(k => /LOKASI|KOTA|WILAYAH/i.test(k.trim()));
+                const key = keys.find(k => /Lokasi Project \(Provinsi\)|PROVINSI|WILAYAH|^AH$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : 'Lainnya';
             }
 
             if (fieldType === 'segment') {
-                const key = keys.find(k => /SEGMENT|INDUSTRI/i.test(k));
+                const key = keys.find(k => /SEGMENT|INDUSTRI|^AI$/i.test(k.trim()));
                 return key ? normalizeSegmentName(row[key]) : '';
             }
             
             if (fieldType === 'ar7') {
-                const key = keys.find(k => /AR\s*>\s*7|AR7/i.test(k));
+                const key = keys.find(k => /AR\s*>\s*7|AR7|^W$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
             if (fieldType === 'ar30') {
-                const key = keys.find(k => /AR\s*>\s*30|AR30/i.test(k));
+                const key = keys.find(k => /AR\s*>\s*30|AR30|^X$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
-            if (fieldType === 'ar60' || fieldType === 'ar90') {
-                const key = keys.find(k => /AR\s*>\s*60|AR\s*>\s*90|AR60|AR90/i.test(k));
+            if (fieldType === 'ar60') {
+                const key = keys.find(k => /AR\s*>\s*60|AR60|^Y$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
 
-            // PEMBACAAN BARU: KOLOM AB (MAX_OVD) & AC (TOT_OVD)
+            // MAX_OVD (KOLOM AB) & TOT_OVD (KOLOM AC)
             if (fieldType === 'max_ovd') {
-                const key = keys.find(k => /^MAX_OVD$/i.test(k.trim())) || keys.find(k => /MAX.*OVD/i.test(k.trim()));
+                const key = keys.find(k => /^MAX_OVD$/i.test(k.trim()) || /^AB$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
             if (fieldType === 'tot_ovd') {
-                const key = keys.find(k => /^TOT_OVD$/i.test(k.trim())) || keys.find(k => /TOT.*OVD/i.test(k.trim()));
+                const key = keys.find(k => /^TOT_OVD$/i.test(k.trim()) || /^AC$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
             }
 
-            if (fieldType === 'status_agree' || fieldType === 'contract_status') {
-                let key = keys.find(k => /^CONTRACT_STA$/i.test(k) || /^CONTRACT_STATUS$/i.test(k) || /CONTRACT.*STA/i.test(k));
-                if (!key) {
-                    key = keys.find(k => /STATUS_AGRE|STATUS AGREE/i.test(k));
-                }
+            if (fieldType === 'contract_status') {
+                const key = keys.find(k => /^CONTRACT_STA$/i.test(k.trim()) || /^CONTRACT_STATUS$/i.test(k.trim()) || /^T$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
 
-            if (fieldType === 'outstanding') {
-                const key = keys.find(k => /AF Outstanding|AF_OUTSTANDING|OUTSTANDING|OS/i.test(k));
+            // AF KONTRAK (KOLOM M) & AF OUTSTANDING (KOLOM N ATAU P)
+            if (fieldType === 'af_kontrak') {
+                const key = keys.find(k => /^AF_KONTRAK$/i.test(k.trim()) || /^AF KONTRAK$/i.test(k.trim()) || /^M$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '0';
             }
-            if (fieldType === 'af_kontrak') {
-                const key = keys.find(k => /^AF Kontrak$|AF_KONTRAK|AF KONTRAK|^AF$/i.test(k));
+            if (fieldType === 'outstanding') {
+                const key = keys.find(k => /^AF_OUTSTANDING$/i.test(k.trim()) || /^OUTSTANDING$/i.test(k.trim()) || /^N$/i.test(k.trim()) || /^P$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '0';
             }
             if (fieldType === 'contract_date') {
-                const key = keys.find(k => /Contract Date|CONTRACT_DATE|CONTRACTDATE|TANGGAL_KONTRAK|Tanggal Booking/i.test(k));
+                const key = keys.find(k => /Contract Date|TANGGAL_KONTRAK|^A$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '';
             }
             return '';
         }
 
         function normalizeContractStatus(rawStatus) {
-            if (!rawStatus) return 'OTHER';
+            if (!rawStatus) return 'AC'; // default active jika kosong
             const s = String(rawStatus).toUpperCase().trim();
-            if (s === 'AC' || s.includes('ACTIVE') || s.includes('AKTIF')) return 'AC';
+            if (s === 'AC' || s.includes('ACTIVE') || s.includes('AKTIF') || s === '1') return 'AC';
             if (s === 'CL' || s.includes('CLOSE') || s.includes('CLOSED') || s.includes('SELESAI')) return 'CL';
             if (s === 'PT' || s.includes('PAID') || s.includes('LUNAS')) return 'PT';
             if (s === 'RP' || s.includes('REPO') || s.includes('REPOSSESSED') || s.includes('TARIK')) return 'RP';
-            return 'OTHER';
+            return 'AC';
         }
 
         function fetchGoogleSheetData() {
-            updateSyncUI('loading', 'Menghubungkan ke Google Sheets...');
+            updateSyncUI('loading', 'Menghubungkan ke Tab AR Info 2/11/26...');
 
             Papa.parse(GOOGLE_CSV_URL, {
                 download: true,
@@ -648,13 +646,8 @@
                 skipEmptyLines: 'greedy',
                 complete: function(results) {
                     if (results.data && results.data.length > 0) {
-                        rawData = results.data.filter(row => {
-                            const cust = getFieldValue(row, 'customer');
-                            const prod = getFieldValue(row, 'product');
-                            const owner = getFieldValue(row, 'owner');
-                            return cust !== '' || prod !== '' || owner !== '';
-                        });
-
+                        // BACA SEMUA 7.802 BARIS DATA SECARA UTUH
+                        rawData = results.data;
                         updateSyncUI('success', `Tersambung Live (${rawData.length} baris)`);
                         processDataAndRender();
                     } else {
@@ -823,13 +816,14 @@
                 const oName = getFieldValue(row, 'owner');
                 if (oName) uniqueOwners.add(normalizeEntityName(oName));
 
-                const cDate = getFieldValue(row, 'contract_date');
-                const yr = extractYearFromDate(cDate);
+                const yr = extractYearFromRow(row);
                 const rawAfRow = getFieldValue(row, 'af_kontrak');
-                const afNumRow = parseCurrencyNumber(rawAfRow);
+                const afNumRow = parseCurrencyNumber(rawAfRow); // Membaca Kolom M (AF KONTRAK)
                 const rawOsRow = getFieldValue(row, 'outstanding');
                 const osNumRow = parseCurrencyNumber(rawOsRow);
-                const prodName = getFieldValue(row, 'product') || 'Lainnya';
+                
+                // MURNI DARI KOLOM F (OBJ)
+                const prodName = getFieldValue(row, 'product') || 'OTHER';
 
                 grandTotalAfSum += afNumRow;
 
@@ -871,7 +865,7 @@
                 }
             });
 
-            const totalKontrak = countAC + countCL + countPT + countRP;
+            const totalKontrak = filteredData.length;
             document.getElementById('kpi-total-unit').innerText = totalKontrak;
             document.getElementById('kpi-total-customer').innerText = uniqueCustomers.size;
             document.getElementById('kpi-total-owner').innerText = uniqueOwners.size;
@@ -879,6 +873,7 @@
             const fmtOverallAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(grandTotalAfSum);
             document.getElementById('kpi-total-af-overall').innerText = fmtOverallAf;
 
+            // BREAKDOWN PRODUCT KOLOM F (OBJ)
             const productContainer = document.getElementById('kpi-product-breakdown');
             const sortedProducts = Object.entries(productAfMap).sort((a,b) => b[1] - a[1]);
             if (sortedProducts.length > 0) {
@@ -895,6 +890,7 @@
                 productContainer.innerHTML = `<span class="text-slate-500 italic">Tidak ada data product</span>`;
             }
 
+            // BREAKDOWN AF PER TAHUN
             const sortedYears = Object.keys(yearMap).sort();
             const yearBreakdownContainer = document.getElementById('kpi-year-breakdown');
             if (sortedYears.length > 0) {
@@ -936,7 +932,7 @@
             document.getElementById('kpi-rp-outstanding').innerHTML = `${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumOutstandingRP)} (<span id="kpi-rp-os-pct">${rpOsPct}%</span>)`;
             renderStatusProductBreakdown('rp-product-breakdown', statusProductBreakdown.RP, 'rose');
 
-            // AR INFO & TOP GOOD PAYERS / WORST PAYERS LOGIC
+            // AR INFO: GOOD PAYERS & WORST PAYERS ACCORDING TO KRITERIA
             const arBaseData = filteredData.filter(row => {
                 if (currentArFilter === 'ALL') return true;
                 return normalizeContractStatus(getFieldValue(row, 'contract_status')) === currentArFilter;
@@ -954,19 +950,17 @@
                 const val30 = getFieldValue(row, 'ar30');
                 const val60 = getFieldValue(row, 'ar60');
 
-                const maxOvd = getFieldValue(row, 'max_ovd');
-                const totOvd = getFieldValue(row, 'tot_ovd');
+                const maxOvd = getFieldValue(row, 'max_ovd'); // Kolom AB
+                const totOvd = getFieldValue(row, 'tot_ovd'); // Kolom AC
 
                 const cName = formatEntityDisplay(getFieldValue(row, 'customer') || 'Unknown');
                 const bName = getFieldValue(row, 'brand_unit');
-                const statusCode = normalizeContractStatus(getFieldValue(row, 'contract_status'));
 
                 const rawAfRow = getFieldValue(row, 'af_kontrak');
                 const afNumRow = parseCurrencyNumber(rawAfRow);
                 const rawOsRow = getFieldValue(row, 'outstanding');
                 const osNumRow = parseCurrencyNumber(rawOsRow);
 
-                // Hitung Tunggakan AR
                 if (val7 >= 1) {
                     ar7Count++;
                     if (bName && bName !== '-') {
@@ -986,8 +980,8 @@
                     }
                 }
 
-                // KRITERIA TOP GOOD PAYERS (MAX_OVD < 7 DAN TOT_OVD < 7)
-                if ((statusCode === 'AC' || statusCode === 'PT') && maxOvd < 7 && totOvd < 7) {
+                // KRITERIA GOOD PAYERS: MAX_OVD < 7 DAN TOT_OVD < 7
+                if (maxOvd < 7 && totOvd < 7) {
                     if (!goodPayerMap[cName]) {
                         goodPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
                     }
@@ -996,7 +990,7 @@
                     goodPayerMap[cName].totalOs += osNumRow;
                 }
 
-                // KRITERIA TOP WORST PAYERS (MAX_OVD > 60 DAN TOT_OVD > 90)
+                // KRITERIA WORST PAYERS: MAX_OVD > 60 DAN TOT_OVD > 90
                 if (maxOvd > 60 && totOvd > 90) {
                     if (!worstPayerMap[cName]) {
                         worstPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
@@ -1024,7 +1018,7 @@
                 custTitle.className = "text-xs text-emerald-400 uppercase font-bold tracking-wider mb-1";
 
                 const top3Good = Object.entries(goodPayerMap)
-                    .sort((a,b) => b[1].count - a[1].count)
+                    .sort((a,b) => b[1].totalAf - a[1].totalAf)
                     .slice(0,3);
 
                 if (top3Good.length === 0) {
@@ -1057,7 +1051,7 @@
                 custTitle.className = "text-xs text-rose-400 uppercase font-bold tracking-wider mb-1";
 
                 const top3Worst = Object.entries(worstPayerMap)
-                    .sort((a,b) => b[1].count - a[1].count)
+                    .sort((a,b) => b[1].totalAf - a[1].totalAf)
                     .slice(0,3);
 
                 if (top3Worst.length === 0) {
@@ -1428,7 +1422,7 @@
                 const cust = getFieldValue(row, 'customer') || '-';
                 const brand = getFieldValue(row, 'brand_unit') || '-';
                 const product = getFieldValue(row, 'product') || '-';
-                const statusAgree = getFieldValue(row, 'contract_status') || '-';
+                const statusAgree = getFieldValue(row, 'contract_status') || 'AC';
                 const owner = getFieldValue(row, 'owner') || '-';
                 const lokasi = getFieldValue(row, 'lokasi') || '-';
                 const segment = getFieldValue(row, 'segment') || '-';
@@ -1478,7 +1472,7 @@
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.setAttribute('download', `Export_Bowheer.csv`);
+            link.setAttribute('download', `Export_Bowheer_AR_Info.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
