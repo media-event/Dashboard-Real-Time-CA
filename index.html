@@ -131,10 +131,10 @@
                 </div>
             </div>
 
-            <!-- AR INFO & PERFORMANCE CARD -->
-            <div class="lg:col-span-7 bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 relative overflow-hidden flex flex-col justify-between">
+            <!-- AR INFO & PERFORMANCE CARD (POSISI DIRAPATKAN KE ATAS DENGAN mt-2.5 Serta space-y-2) -->
+            <div class="lg:col-span-7 bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 relative overflow-hidden flex flex-col justify-start">
                 <div>
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                         <p class="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
                             <i class="fa-solid fa-triangle-exclamation"></i> AR INFO &amp; PERFORMANCE
                         </p>
@@ -157,7 +157,7 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-3 gap-3 py-2 border-y border-slate-700/60 bg-slate-900/50 rounded-xl px-3">
+                    <div class="grid grid-cols-3 gap-3 py-1.5 border-y border-slate-700/60 bg-slate-900/50 rounded-xl px-3">
                         <div class="text-center border-r border-slate-700/50">
                             <span class="text-xs text-yellow-400 font-bold block">AR &gt; 7</span>
                             <span id="ar7-val" class="text-base font-extrabold text-white block mt-0.5">0 Kr</span>
@@ -176,10 +176,11 @@
                     </div>
                 </div>
 
-                <div class="mt-3 space-y-2.5 text-xs">
+                <!-- KONTEN GOOD/WORST PAYERS DIPUSATKAN LEBIH NAIK KE ATAS (mt-2.5) -->
+                <div class="mt-2.5 space-y-2 text-xs">
                     <div>
                         <p id="ar-top3-customer-title" class="text-xs text-emerald-400 uppercase font-bold tracking-wider mb-1">Top Good Payers (Max OVD &lt; 7 Hari &amp; Tot OVD &lt; 7 Hari):</p>
-                        <div id="ar-top3-customer" class="space-y-1 text-slate-200">
+                        <div id="ar-top3-customer" class="space-y-1.5 text-slate-200">
                             <span class="text-slate-500 italic">Memuat data...</span>
                         </div>
                     </div>
@@ -413,7 +414,6 @@
     </main>
 
     <script>
-        // URL KHUSUS TAB AR Info 2/11/26 (gid=1098227073)
         const SPREADSHEET_ID = '1VUCL0zZIhNrc6X3bhWJL_hIDrKnhZXJm38DPCM2YHMU';
         const GID_AR_INFO = '1098227073';
         const GOOGLE_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_AR_INFO}`;
@@ -422,7 +422,7 @@
         let filteredData = [];
         let currentArFilter = 'ALL';
         let currentProvFilter = 'ALL';
-        let customerViewMode = 'GOOD'; // 'GOOD' atau 'WORST'
+        let customerViewMode = 'GOOD'; 
 
         let chartCustomer = null;
         let chartOwner = null;
@@ -433,7 +433,6 @@
             fetchGoogleSheetData();
         });
 
-        // PARSER ANGKA CURRENCY PRESISI (HILANGKAN RP, TITIK/KOMA DESIMAL)
         function parseCurrencyNumber(valStr) {
             if (!valStr || valStr === '-' || valStr === 'null' || valStr === 'undefined') return 0;
             let str = String(valStr).replace(/Rp|RP|\s/g, '').trim();
@@ -462,7 +461,6 @@
         }
 
         function extractYearFromRow(row) {
-            // Priority 1: Kolom H (Tahun Booking/Kontrak)
             const keys = Object.keys(row);
             const keyH = keys.find(k => /^H$/i.test(k.trim()) || /TAHUN|YEAR/i.test(k));
             if (keyH && row[keyH]) {
@@ -470,7 +468,6 @@
                 if (/^\d{4}$/.test(yrStr)) return yrStr;
             }
 
-            // Priority 2: Ekstrak dari Kolom A (Tanggal Booking/Contract Date)
             const dateVal = getFieldValue(row, 'contract_date');
             if (dateVal) {
                 const str = String(dateVal).trim();
@@ -531,7 +528,6 @@
             });
         }
 
-        // METODE EXTRACTION HEADER PRESISI TAB AR INFO
         function getFieldValue(row, fieldType) {
             if (!row) return '';
             const keys = Object.keys(row);
@@ -545,7 +541,6 @@
                 return key ? String(row[key]).trim() : '';
             }
             
-            // BREAKDOWN PRODUCT HANYA DARI KOLOM F (OBJ) SENSITIF
             if (fieldType === 'product') {
                 const key = keys.find(k => /^OBJ$/i.test(k.trim()) || /^F$/i.test(k.trim()) || /^PRODUCT$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : 'OTHER';
@@ -596,7 +591,6 @@
                 return key ? parseNumberOnly(row[key]) : 0;
             }
 
-            // MAX_OVD (KOLOM AB) & TOT_OVD (KOLOM AC)
             if (fieldType === 'max_ovd') {
                 const key = keys.find(k => /^MAX_OVD$/i.test(k.trim()) || /^AB$/i.test(k.trim()));
                 return key ? parseNumberOnly(row[key]) : 0;
@@ -611,7 +605,6 @@
                 return key ? String(row[key]).trim() : '';
             }
 
-            // AF KONTRAK (KOLOM M) & AF OUTSTANDING (KOLOM N ATAU P)
             if (fieldType === 'af_kontrak') {
                 const key = keys.find(k => /^AF_KONTRAK$/i.test(k.trim()) || /^AF KONTRAK$/i.test(k.trim()) || /^M$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : '0';
@@ -628,7 +621,7 @@
         }
 
         function normalizeContractStatus(rawStatus) {
-            if (!rawStatus) return 'AC'; // default active jika kosong
+            if (!rawStatus) return 'AC'; 
             const s = String(rawStatus).toUpperCase().trim();
             if (s === 'AC' || s.includes('ACTIVE') || s.includes('AKTIF') || s === '1') return 'AC';
             if (s === 'CL' || s.includes('CLOSE') || s.includes('CLOSED') || s.includes('SELESAI')) return 'CL';
@@ -646,7 +639,6 @@
                 skipEmptyLines: 'greedy',
                 complete: function(results) {
                     if (results.data && results.data.length > 0) {
-                        // BACA SEMUA 7.802 BARIS DATA SECARA UTUH
                         rawData = results.data;
                         updateSyncUI('success', `Tersambung Live (${rawData.length} baris)`);
                         processDataAndRender();
@@ -818,11 +810,10 @@
 
                 const yr = extractYearFromRow(row);
                 const rawAfRow = getFieldValue(row, 'af_kontrak');
-                const afNumRow = parseCurrencyNumber(rawAfRow); // Membaca Kolom M (AF KONTRAK)
+                const afNumRow = parseCurrencyNumber(rawAfRow);
                 const rawOsRow = getFieldValue(row, 'outstanding');
                 const osNumRow = parseCurrencyNumber(rawOsRow);
                 
-                // MURNI DARI KOLOM F (OBJ)
                 const prodName = getFieldValue(row, 'product') || 'OTHER';
 
                 grandTotalAfSum += afNumRow;
@@ -873,7 +864,6 @@
             const fmtOverallAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(grandTotalAfSum);
             document.getElementById('kpi-total-af-overall').innerText = fmtOverallAf;
 
-            // BREAKDOWN PRODUCT KOLOM F (OBJ)
             const productContainer = document.getElementById('kpi-product-breakdown');
             const sortedProducts = Object.entries(productAfMap).sort((a,b) => b[1] - a[1]);
             if (sortedProducts.length > 0) {
@@ -890,7 +880,6 @@
                 productContainer.innerHTML = `<span class="text-slate-500 italic">Tidak ada data product</span>`;
             }
 
-            // BREAKDOWN AF PER TAHUN
             const sortedYears = Object.keys(yearMap).sort();
             const yearBreakdownContainer = document.getElementById('kpi-year-breakdown');
             if (sortedYears.length > 0) {
@@ -907,7 +896,6 @@
                 yearBreakdownContainer.innerHTML = `<span class="text-slate-500 italic">Tidak ada data tanggal</span>`;
             }
 
-            // KARTU STATUS KONTRAK
             document.getElementById('kpi-status-ac').innerText = countAC;
             document.getElementById('kpi-status-ac-sub').innerText = `${totalKontrak > 0 ? ((countAC/totalKontrak)*100).toFixed(1) : 0}% dari Total Kontrak`;
             document.getElementById('kpi-ac-af').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumAfAC);
@@ -932,7 +920,6 @@
             document.getElementById('kpi-rp-outstanding').innerHTML = `${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumOutstandingRP)} (<span id="kpi-rp-os-pct">${rpOsPct}%</span>)`;
             renderStatusProductBreakdown('rp-product-breakdown', statusProductBreakdown.RP, 'rose');
 
-            // AR INFO: GOOD PAYERS & WORST PAYERS ACCORDING TO KRITERIA
             const arBaseData = filteredData.filter(row => {
                 if (currentArFilter === 'ALL') return true;
                 return normalizeContractStatus(getFieldValue(row, 'contract_status')) === currentArFilter;
@@ -950,8 +937,8 @@
                 const val30 = getFieldValue(row, 'ar30');
                 const val60 = getFieldValue(row, 'ar60');
 
-                const maxOvd = getFieldValue(row, 'max_ovd'); // Kolom AB
-                const totOvd = getFieldValue(row, 'tot_ovd'); // Kolom AC
+                const maxOvd = getFieldValue(row, 'max_ovd');
+                const totOvd = getFieldValue(row, 'tot_ovd');
 
                 const cName = formatEntityDisplay(getFieldValue(row, 'customer') || 'Unknown');
                 const bName = getFieldValue(row, 'brand_unit');
@@ -980,7 +967,6 @@
                     }
                 }
 
-                // KRITERIA GOOD PAYERS: MAX_OVD < 7 DAN TOT_OVD < 7
                 if (maxOvd < 7 && totOvd < 7) {
                     if (!goodPayerMap[cName]) {
                         goodPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
@@ -990,7 +976,6 @@
                     goodPayerMap[cName].totalOs += osNumRow;
                 }
 
-                // KRITERIA WORST PAYERS: MAX_OVD > 60 DAN TOT_OVD > 90
                 if (maxOvd > 60 && totOvd > 90) {
                     if (!worstPayerMap[cName]) {
                         worstPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
