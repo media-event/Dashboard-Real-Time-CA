@@ -140,7 +140,6 @@
                         </p>
                         
                         <div class="flex items-center gap-2 flex-wrap">
-                            <!-- MODE SELECTION TAB: CUSTOMER VS SUPPLIER -->
                             <div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-indigo-500/40 text-[11px]">
                                 <button onclick="setCustomerMode('GOOD')" id="mode-btn-GOOD" class="px-2 py-0.5 rounded font-bold bg-emerald-600 text-white transition">Good Customer</button>
                                 <button onclick="setCustomerMode('WORST')" id="mode-btn-WORST" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition">Worst Customer</button>
@@ -534,10 +533,16 @@
                 return key ? String(row[key]).trim() : '';
             }
             
-            // KOLOM AD : SUPPLIER
+            // KOLOM AD : SUPPLIER (Index ke-29 / Header Supplier)
             if (fieldType === 'supplier') {
-                const key = keys.find(k => /^Supplier$/i.test(k.trim()) || /^NAMA_SUPPLIER$/i.test(k.trim()) || /^AD$/i.test(k.trim()));
-                return key ? String(row[key]).trim() : 'Unknown Supplier';
+                const key = keys.find(k => /Supplier|DEALER|NAMA_SUPPLIER|^AD$/i.test(k.trim()));
+                if (key && row[key]) return String(row[key]).trim();
+                
+                // Fallback pencarian berbasis posisi indeks ke-29 (Kolom AD)
+                if (keys[29] && row[keys[29]]) {
+                    return String(row[keys[29]]).trim();
+                }
+                return '';
             }
 
             if (fieldType === 'product') {
@@ -764,7 +769,6 @@
             const btnGoodSupp = document.getElementById('mode-btn-GOOD-SUPPLIER');
             const btnWorstSupp = document.getElementById('mode-btn-WORST-SUPPLIER');
 
-            // Reset classsese
             [btnGood, btnWorst, btnGoodSupp, btnWorstSupp].forEach(b => {
                 b.className = 'px-2 py-0.5 rounded font-bold text-slate-400 hover:text-white transition';
             });
@@ -953,7 +957,7 @@
                 const totOvd = getFieldValue(row, 'tot_ovd');
 
                 const cName = formatEntityDisplay(getFieldValue(row, 'customer') || 'Unknown Customer');
-                const sName = formatEntityDisplay(getFieldValue(row, 'supplier') || 'Unknown Supplier');
+                const sName = formatEntityDisplay(getFieldValue(row, 'supplier') || 'Tanpa Supplier');
                 const bName = getFieldValue(row, 'brand_unit');
 
                 const rawAfRow = getFieldValue(row, 'af_kontrak');
@@ -982,7 +986,6 @@
 
                 // KRITERIA GOOD (MAX_OVD < 7 & TOT_OVD < 7)
                 if (maxOvd < 7 && totOvd < 7) {
-                    // Customer
                     if (!goodPayerMap[cName]) {
                         goodPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
                     }
@@ -990,8 +993,7 @@
                     goodPayerMap[cName].totalAf += afNumRow;
                     goodPayerMap[cName].totalOs += osNumRow;
 
-                    // Supplier
-                    if (sName && sName !== 'Unknown Supplier') {
+                    if (sName) {
                         if (!goodSupplierMap[sName]) {
                             goodSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
                         }
@@ -1003,7 +1005,6 @@
 
                 // KRITERIA WORST (MAX_OVD > 60 & TOT_OVD > 90)
                 if (maxOvd > 60 && totOvd > 90) {
-                    // Customer
                     if (!worstPayerMap[cName]) {
                         worstPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
                     }
@@ -1011,8 +1012,7 @@
                     worstPayerMap[cName].totalAf += afNumRow;
                     worstPayerMap[cName].totalOs += osNumRow;
 
-                    // Supplier
-                    if (sName && sName !== 'Unknown Supplier') {
+                    if (sName) {
                         if (!worstSupplierMap[sName]) {
                             worstSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
                         }
@@ -1043,7 +1043,7 @@
                     .sort((a,b) => b[1].totalAf - a[1].totalAf)
                     .slice(0,3);
 
-                renderPayersOrSuppliersList(custContainer, top3Good, 'lancar', 'emerald');
+                renderPayersOrSuppliersList(custContainer, top3Good, 'Unit Lancar', 'emerald');
 
             } else if (customerViewMode === 'WORST') {
                 custTitle.innerText = "Top Worst Payers (Max OVD > 60 Hari & Tot OVD > 90 Hari):";
@@ -1053,7 +1053,7 @@
                     .sort((a,b) => b[1].totalAf - a[1].totalAf)
                     .slice(0,3);
 
-                renderPayersOrSuppliersList(custContainer, top3Worst, 'OVD', 'rose');
+                renderPayersOrSuppliersList(custContainer, top3Worst, 'Unit OVD', 'rose');
 
             } else if (customerViewMode === 'GOOD_SUPPLIER') {
                 custTitle.innerText = "Top Good Suppliers (Max OVD < 7 Hari & Tot OVD < 7 Hari):";
