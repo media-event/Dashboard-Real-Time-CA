@@ -81,7 +81,7 @@
                 </div>
                 <div class="relative">
                     <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-500 text-xs"></i>
-                    <input type="text" id="search-input" onkeyup="applyFilters()" placeholder="Cari nama, No Kontrak, Owner..." class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <input type="text" id="search-input" onkeyup="applyFilters()" placeholder="Cari nama, No Kontrak, Supplier..." class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
                 </div>
             </div>
 
@@ -140,9 +140,12 @@
                         </p>
                         
                         <div class="flex items-center gap-2 flex-wrap">
+                            <!-- MODE SELECTION TAB: CUSTOMER VS SUPPLIER -->
                             <div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-indigo-500/40 text-[11px]">
-                                <button onclick="setCustomerMode('GOOD')" id="mode-btn-GOOD" class="px-2.5 py-0.5 rounded font-bold bg-emerald-600 text-white transition">Top Good Payers</button>
-                                <button onclick="setCustomerMode('WORST')" id="mode-btn-WORST" class="px-2.5 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition">Top Worst Payers</button>
+                                <button onclick="setCustomerMode('GOOD')" id="mode-btn-GOOD" class="px-2 py-0.5 rounded font-bold bg-emerald-600 text-white transition">Good Customer</button>
+                                <button onclick="setCustomerMode('WORST')" id="mode-btn-WORST" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition">Worst Customer</button>
+                                <button onclick="setCustomerMode('GOOD_SUPPLIER')" id="mode-btn-GOOD-SUPPLIER" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-emerald-400 transition">Good Supplier</button>
+                                <button onclick="setCustomerMode('WORST_SUPPLIER')" id="mode-btn-WORST-SUPPLIER" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition">Worst Supplier</button>
                             </div>
 
                             <div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-700 text-xs">
@@ -394,6 +397,7 @@
                             <th class="px-3 py-3">No</th>
                             <th class="px-3 py-3">NO KONTRAK</th>
                             <th class="px-3 py-3">NAMA CUSTOMER</th>
+                            <th class="px-3 py-3">SUPPLIER</th>
                             <th class="px-3 py-3 text-center">TOTAL KONTRAK</th>
                             <th class="px-3 py-3">BRAND / UNIT</th>
                             <th class="px-3 py-3">PRODUCT</th>
@@ -412,9 +416,6 @@
 
     <script>
         const SPREADSHEET_ID = '1VUCL0zZIhNrc6X3bhWJL_hIDrKnhZXJm38DPCM2YHMU';
-        
-        // MENGGUNAKAN ID TAB (GID) RESMI GOOGLE SHEETS
-        // GID Tab 'DATA CREDIT' (0) atau Fallback Tab AR Info (1098227073)
         const GID_DATA_CREDIT = '0'; 
         const GOOGLE_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_DATA_CREDIT}`;
 
@@ -519,7 +520,7 @@
             });
         }
 
-        // DYNAMIC FIELD EXTRACTOR (Support Tab 'DATA CREDIT' & Tab 'AR Info')
+        // EXTRACTOR DATA PER KOLOM
         function getFieldValue(row, fieldType) {
             if (!row) return '';
             const keys = Object.keys(row);
@@ -533,6 +534,12 @@
                 return key ? String(row[key]).trim() : '';
             }
             
+            // KOLOM AD : SUPPLIER
+            if (fieldType === 'supplier') {
+                const key = keys.find(k => /^Supplier$/i.test(k.trim()) || /^NAMA_SUPPLIER$/i.test(k.trim()) || /^AD$/i.test(k.trim()));
+                return key ? String(row[key]).trim() : 'Unknown Supplier';
+            }
+
             if (fieldType === 'product') {
                 const key = keys.find(k => /^Product$/i.test(k.trim()) || /^OBJ$/i.test(k.trim()) || /^G$|^F$/i.test(k.trim()));
                 return key ? String(row[key]).trim() : 'OTHER';
@@ -703,6 +710,7 @@
 
             filteredData = rawData.filter(row => {
                 const rowCust = getFieldValue(row, 'customer');
+                const rowSupp = getFieldValue(row, 'supplier');
                 const rowProd = getFieldValue(row, 'product');
                 const rowBrand = getFieldValue(row, 'brand_unit');
                 const rowOwner = getFieldValue(row, 'owner');
@@ -715,7 +723,7 @@
                 const matchSeg = !segVal || rowSeg === segVal;
                 const matchCust = !custVal || rowCust === custVal;
                 const matchLok = !lokVal || rowLokasi === lokVal;
-                const searchHaystack = `${rowCust} ${rowOwner} ${rowProd} ${rowBrand} ${rowLokasi} ${rowSeg} ${rowKontrak} ${rowStatus}`.toLowerCase();
+                const searchHaystack = `${rowCust} ${rowSupp} ${rowOwner} ${rowProd} ${rowBrand} ${rowLokasi} ${rowSeg} ${rowKontrak} ${rowStatus}`.toLowerCase();
                 const matchSearch = !searchVal || searchHaystack.includes(searchVal);
 
                 return matchStatus && matchSeg && matchCust && matchLok && matchSearch;
@@ -753,13 +761,22 @@
             customerViewMode = mode;
             const btnGood = document.getElementById('mode-btn-GOOD');
             const btnWorst = document.getElementById('mode-btn-WORST');
+            const btnGoodSupp = document.getElementById('mode-btn-GOOD-SUPPLIER');
+            const btnWorstSupp = document.getElementById('mode-btn-WORST-SUPPLIER');
+
+            // Reset classsese
+            [btnGood, btnWorst, btnGoodSupp, btnWorstSupp].forEach(b => {
+                b.className = 'px-2 py-0.5 rounded font-bold text-slate-400 hover:text-white transition';
+            });
 
             if (mode === 'GOOD') {
-                btnGood.className = 'px-2.5 py-0.5 rounded font-bold bg-emerald-600 text-white transition';
-                btnWorst.className = 'px-2.5 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition';
-            } else {
-                btnWorst.className = 'px-2.5 py-0.5 rounded font-bold bg-rose-600 text-white transition';
-                btnGood.className = 'px-2.5 py-0.5 rounded font-bold text-slate-400 hover:text-emerald-400 transition';
+                btnGood.className = 'px-2 py-0.5 rounded font-bold bg-emerald-600 text-white transition';
+            } else if (mode === 'WORST') {
+                btnWorst.className = 'px-2 py-0.5 rounded font-bold bg-rose-600 text-white transition';
+            } else if (mode === 'GOOD_SUPPLIER') {
+                btnGoodSupp.className = 'px-2 py-0.5 rounded font-bold bg-emerald-600 text-white transition';
+            } else if (mode === 'WORST_SUPPLIER') {
+                btnWorstSupp.className = 'px-2 py-0.5 rounded font-bold bg-rose-600 text-white transition';
             }
             renderKPIs();
         }
@@ -924,6 +941,8 @@
             const brandArMap = { 7: {}, 30: {}, 60: {} };
             const goodPayerMap = {};
             const worstPayerMap = {};
+            const goodSupplierMap = {};
+            const worstSupplierMap = {};
 
             arBaseData.forEach(row => {
                 const val7 = getFieldValue(row, 'ar7');
@@ -933,7 +952,8 @@
                 const maxOvd = getFieldValue(row, 'max_ovd');
                 const totOvd = getFieldValue(row, 'tot_ovd');
 
-                const cName = formatEntityDisplay(getFieldValue(row, 'customer') || 'Unknown');
+                const cName = formatEntityDisplay(getFieldValue(row, 'customer') || 'Unknown Customer');
+                const sName = formatEntityDisplay(getFieldValue(row, 'supplier') || 'Unknown Supplier');
                 const bName = getFieldValue(row, 'brand_unit');
 
                 const rawAfRow = getFieldValue(row, 'af_kontrak');
@@ -960,22 +980,46 @@
                     }
                 }
 
+                // KRITERIA GOOD (MAX_OVD < 7 & TOT_OVD < 7)
                 if (maxOvd < 7 && totOvd < 7) {
+                    // Customer
                     if (!goodPayerMap[cName]) {
                         goodPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
                     }
                     goodPayerMap[cName].count += 1;
                     goodPayerMap[cName].totalAf += afNumRow;
                     goodPayerMap[cName].totalOs += osNumRow;
+
+                    // Supplier
+                    if (sName && sName !== 'Unknown Supplier') {
+                        if (!goodSupplierMap[sName]) {
+                            goodSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
+                        }
+                        goodSupplierMap[sName].count += 1;
+                        goodSupplierMap[sName].totalAf += afNumRow;
+                        goodSupplierMap[sName].totalOs += osNumRow;
+                    }
                 }
 
+                // KRITERIA WORST (MAX_OVD > 60 & TOT_OVD > 90)
                 if (maxOvd > 60 && totOvd > 90) {
+                    // Customer
                     if (!worstPayerMap[cName]) {
                         worstPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
                     }
                     worstPayerMap[cName].count += 1;
                     worstPayerMap[cName].totalAf += afNumRow;
                     worstPayerMap[cName].totalOs += osNumRow;
+
+                    // Supplier
+                    if (sName && sName !== 'Unknown Supplier') {
+                        if (!worstSupplierMap[sName]) {
+                            worstSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
+                        }
+                        worstSupplierMap[sName].count += 1;
+                        worstSupplierMap[sName].totalAf += afNumRow;
+                        worstSupplierMap[sName].totalOs += osNumRow;
+                    }
                 }
             });
 
@@ -999,32 +1043,9 @@
                     .sort((a,b) => b[1].totalAf - a[1].totalAf)
                     .slice(0,3);
 
-                if (top3Good.length === 0) {
-                    custContainer.innerHTML = `<span class="text-slate-500 italic">Tidak ada data customer lancar sesuai kriteria</span>`;
-                } else {
-                    custContainer.innerHTML = `
-                        <div class="space-y-1.5">
-                            ${top3Good.map(([cName, dataObj], idx) => {
-                                const fmtAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalAf);
-                                const fmtOs = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalOs);
-                                return `
-                                    <div class="bg-emerald-950/40 p-2 rounded-lg border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                        <div class="flex items-center gap-2">
-                                            <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center text-[10px] font-bold font-mono">#${idx + 1}</span>
-                                            <span class="text-slate-100 font-bold text-xs truncate max-w-[200px]" title="${escapeHtml(cName)}">${escapeHtml(cName)}</span>
-                                            <span class="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-mono font-semibold border border-emerald-500/30">${dataObj.count} Unit Lancar</span>
-                                        </div>
-                                        <div class="flex items-center gap-3 text-[11px] font-mono text-slate-300 self-end sm:self-center">
-                                            <span>AF: <strong class="text-emerald-400">${fmtAf}</strong></span>
-                                            <span>OS: <strong class="text-cyan-400">${fmtOs}</strong></span>
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    `;
-                }
-            } else {
+                renderPayersOrSuppliersList(custContainer, top3Good, 'lancar', 'emerald');
+
+            } else if (customerViewMode === 'WORST') {
                 custTitle.innerText = "Top Worst Payers (Max OVD > 60 Hari & Tot OVD > 90 Hari):";
                 custTitle.className = "text-xs text-rose-400 uppercase font-bold tracking-wider mb-1";
 
@@ -1032,31 +1053,27 @@
                     .sort((a,b) => b[1].totalAf - a[1].totalAf)
                     .slice(0,3);
 
-                if (top3Worst.length === 0) {
-                    custContainer.innerHTML = `<span class="text-slate-500 italic">Tidak ada data customer menunggak berat sesuai kriteria</span>`;
-                } else {
-                    custContainer.innerHTML = `
-                        <div class="space-y-1.5">
-                            ${top3Worst.map(([cName, dataObj], idx) => {
-                                const fmtAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalAf);
-                                const fmtOs = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalOs);
-                                return `
-                                    <div class="bg-rose-950/40 p-2 rounded-lg border border-rose-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                        <div class="flex items-center gap-2">
-                                            <span class="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center text-[10px] font-bold font-mono">#${idx + 1}</span>
-                                            <span class="text-slate-100 font-bold text-xs truncate max-w-[200px]" title="${escapeHtml(cName)}">${escapeHtml(cName)}</span>
-                                            <span class="px-1.5 py-0.2 bg-rose-500/20 text-rose-300 rounded text-[10px] font-mono font-semibold border border-rose-500/30">${dataObj.count} Unit OVD</span>
-                                        </div>
-                                        <div class="flex items-center gap-3 text-[11px] font-mono text-slate-300 self-end sm:self-center">
-                                            <span>AF: <strong class="text-rose-400">${fmtAf}</strong></span>
-                                            <span>OS: <strong class="text-amber-400">${fmtOs}</strong></span>
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    `;
-                }
+                renderPayersOrSuppliersList(custContainer, top3Worst, 'OVD', 'rose');
+
+            } else if (customerViewMode === 'GOOD_SUPPLIER') {
+                custTitle.innerText = "Top Good Suppliers (Max OVD < 7 Hari & Tot OVD < 7 Hari):";
+                custTitle.className = "text-xs text-emerald-400 uppercase font-bold tracking-wider mb-1";
+
+                const top3GoodSupp = Object.entries(goodSupplierMap)
+                    .sort((a,b) => b[1].totalAf - a[1].totalAf)
+                    .slice(0,3);
+
+                renderPayersOrSuppliersList(custContainer, top3GoodSupp, 'Unit Lancar', 'emerald');
+
+            } else if (customerViewMode === 'WORST_SUPPLIER') {
+                custTitle.innerText = "Top Worst Suppliers (Max OVD > 60 Hari & Tot OVD > 90 Hari):";
+                custTitle.className = "text-xs text-rose-400 uppercase font-bold tracking-wider mb-1";
+
+                const top3WorstSupp = Object.entries(worstSupplierMap)
+                    .sort((a,b) => b[1].totalAf - a[1].totalAf)
+                    .slice(0,3);
+
+                renderPayersOrSuppliersList(custContainer, top3WorstSupp, 'Unit OVD', 'rose');
             }
 
             const top3Brand7 = Object.entries(brandArMap[7]).sort((a,b)=>b[1]-a[1]).slice(0,3);
@@ -1078,6 +1095,43 @@
                         <span class="text-rose-400 font-semibold">&gt;60 Days:</span>
                         <span class="text-slate-200 font-mono">${top3Brand60.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
                     </div>
+                </div>
+            `;
+        }
+
+        function renderPayersOrSuppliersList(container, dataList, unitLabel, themeColor) {
+            if (dataList.length === 0) {
+                container.innerHTML = `<span class="text-slate-500 italic">Tidak ada data sesuai kriteria</span>`;
+                return;
+            }
+
+            const isEmerald = themeColor === 'emerald';
+            const bgClass = isEmerald ? 'bg-emerald-950/40' : 'bg-rose-950/40';
+            const borderClass = isEmerald ? 'border-emerald-500/30' : 'border-rose-500/30';
+            const badgeBg = isEmerald ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+            const badgeUnitBg = isEmerald ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+            const afColor = isEmerald ? 'text-emerald-400' : 'text-rose-400';
+            const osColor = isEmerald ? 'text-cyan-400' : 'text-amber-400';
+
+            container.innerHTML = `
+                <div class="space-y-1.5">
+                    ${dataList.map(([name, dataObj], idx) => {
+                        const fmtAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalAf);
+                        const fmtOs = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalOs);
+                        return `
+                            <div class="${bgClass} p-2 rounded-lg border ${borderClass} flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-5 h-5 rounded-full ${badgeBg} border flex items-center justify-center text-[10px] font-bold font-mono">#${idx + 1}</span>
+                                    <span class="text-slate-100 font-bold text-xs truncate max-w-[200px]" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold border ${badgeUnitBg}">${dataObj.count} ${unitLabel}</span>
+                                </div>
+                                <div class="flex items-center gap-3 text-[11px] font-mono text-slate-300 self-end sm:self-center">
+                                    <span>AF: <strong class="${afColor}">${fmtAf}</strong></span>
+                                    <span>OS: <strong class="${osColor}">${fmtOs}</strong></span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
                 </div>
             `;
         }
@@ -1380,7 +1434,7 @@
             document.getElementById('table-row-count').innerText = `${filteredData.length} Baris`;
 
             if (filteredData.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" class="px-4 py-8 text-center text-slate-500">Tidak ada data.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="11" class="px-4 py-8 text-center text-slate-500">Tidak ada data.</td></tr>`;
                 return;
             }
 
@@ -1398,6 +1452,7 @@
             tbody.innerHTML = filteredData.map((row, index) => {
                 const noKontrak = getFieldValue(row, 'no_kontrak') || '-';
                 const cust = getFieldValue(row, 'customer') || '-';
+                const supp = getFieldValue(row, 'supplier') || '-';
                 const brand = getFieldValue(row, 'brand_unit') || '-';
                 const product = getFieldValue(row, 'product') || '-';
                 const statusAgree = getFieldValue(row, 'contract_status') || 'AC';
@@ -1426,6 +1481,7 @@
                     <td class="px-3 py-2.5 text-slate-400 font-mono text-[11px]">${index + 1}</td>
                     <td class="px-3 py-2.5 font-mono text-[11px] text-cyan-400">${escapeHtml(noKontrak)}</td>
                     <td class="px-3 py-2.5 font-medium text-slate-100">${escapeHtml(formatEntityDisplay(cust))}</td>
+                    <td class="px-3 py-2.5 text-slate-300">${escapeHtml(formatEntityDisplay(supp))}</td>
                     <td class="px-3 py-2.5 text-center font-bold text-amber-400 font-mono text-[11px]">${totalKontrakCustomer} Kontrak</td>
                     <td class="px-3 py-2.5 font-bold text-amber-300 font-mono text-[11px]">${escapeHtml(brand)}</td>
                     <td class="px-3 py-2.5 text-indigo-300 font-mono text-[11px]">${escapeHtml(product)}</td>
