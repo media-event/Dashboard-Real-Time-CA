@@ -143,8 +143,8 @@
                             <div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-indigo-500/40 text-[11px]">
                                 <button onclick="setCustomerMode('GOOD')" id="mode-btn-GOOD" class="px-2 py-0.5 rounded font-bold bg-emerald-600 text-white transition">Good Customer</button>
                                 <button onclick="setCustomerMode('WORST')" id="mode-btn-WORST" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition">Worst Customer</button>
-                                <button onclick="setCustomerMode('GOOD_SUPPLIER')" id="mode-btn-GOOD-SUPPLIER" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-emerald-400 transition">Good Supplier</button>
-                                <button onclick="setCustomerMode('WORST_SUPPLIER')" id="mode-btn-WORST-SUPPLIER" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition">Worst Supplier</button>
+                                <button onclick="setCustomerMode('GOOD_SUPPLIER')" id="mode-btn-GOOD-SUPPLIER" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-emerald-400 transition">Good Supplier (ABF)</button>
+                                <button onclick="setCustomerMode('WORST_SUPPLIER')" id="mode-btn-WORST-SUPPLIER" class="px-2 py-0.5 rounded font-bold text-slate-400 hover:text-rose-400 transition">Worst Supplier (ABF)</button>
                             </div>
 
                             <div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-700 text-xs">
@@ -533,14 +533,14 @@
                 return key ? String(row[key]).trim() : '';
             }
             
-            // KOLOM AD : SUPPLIER (Index ke-29 / Header Supplier)
+            // KOLOM Z : SUPPLIER (Index ke-25 / Header Supplier / Dealer)
             if (fieldType === 'supplier') {
-                const key = keys.find(k => /Supplier|DEALER|NAMA_SUPPLIER|^AD$/i.test(k.trim()));
+                const key = keys.find(k => /Supplier|DEALER|NAMA_SUPPLIER|^Z$/i.test(k.trim()));
                 if (key && row[key]) return String(row[key]).trim();
                 
-                // Fallback pencarian berbasis posisi indeks ke-29 (Kolom AD)
-                if (keys[29] && row[keys[29]]) {
-                    return String(row[keys[29]]).trim();
+                // Fallback pembacaan berbasis posisi indeks ke-25 (Kolom Z)
+                if (keys[25] && row[keys[25]]) {
+                    return String(row[keys[25]]).trim();
                 }
                 return '';
             }
@@ -957,7 +957,8 @@
                 const totOvd = getFieldValue(row, 'tot_ovd');
 
                 const cName = formatEntityDisplay(getFieldValue(row, 'customer') || 'Unknown Customer');
-                const sName = formatEntityDisplay(getFieldValue(row, 'supplier') || 'Tanpa Supplier');
+                const sName = formatEntityDisplay(getFieldValue(row, 'supplier') || '');
+                const pName = getFieldValue(row, 'product') || '';
                 const bName = getFieldValue(row, 'brand_unit');
 
                 const rawAfRow = getFieldValue(row, 'af_kontrak');
@@ -986,6 +987,7 @@
 
                 // KRITERIA GOOD (MAX_OVD < 7 & TOT_OVD < 7)
                 if (maxOvd < 7 && totOvd < 7) {
+                    // Customer (Semua Produk)
                     if (!goodPayerMap[cName]) {
                         goodPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
                     }
@@ -993,7 +995,8 @@
                     goodPayerMap[cName].totalAf += afNumRow;
                     goodPayerMap[cName].totalOs += osNumRow;
 
-                    if (sName) {
+                    // Supplier (LOGIKA PEMBACAAN KHUSUS PRODUCT ABF SAJA)
+                    if (pName.toUpperCase() === 'ABF' && sName && sName !== '-') {
                         if (!goodSupplierMap[sName]) {
                             goodSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
                         }
@@ -1005,6 +1008,7 @@
 
                 // KRITERIA WORST (MAX_OVD > 60 & TOT_OVD > 90)
                 if (maxOvd > 60 && totOvd > 90) {
+                    // Customer (Semua Produk)
                     if (!worstPayerMap[cName]) {
                         worstPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
                     }
@@ -1012,7 +1016,8 @@
                     worstPayerMap[cName].totalAf += afNumRow;
                     worstPayerMap[cName].totalOs += osNumRow;
 
-                    if (sName) {
+                    // Supplier (LOGIKA PEMBACAAN KHUSUS PRODUCT ABF SAJA)
+                    if (pName.toUpperCase() === 'ABF' && sName && sName !== '-') {
                         if (!worstSupplierMap[sName]) {
                             worstSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
                         }
@@ -1056,7 +1061,7 @@
                 renderPayersOrSuppliersList(custContainer, top3Worst, 'Unit OVD', 'rose');
 
             } else if (customerViewMode === 'GOOD_SUPPLIER') {
-                custTitle.innerText = "Top Good Suppliers (Max OVD < 7 Hari & Tot OVD < 7 Hari):";
+                custTitle.innerText = "Top Good Suppliers [ABF Only] (Max OVD < 7 Hari & Tot OVD < 7 Hari):";
                 custTitle.className = "text-xs text-emerald-400 uppercase font-bold tracking-wider mb-1";
 
                 const top3GoodSupp = Object.entries(goodSupplierMap)
@@ -1066,7 +1071,7 @@
                 renderPayersOrSuppliersList(custContainer, top3GoodSupp, 'Unit Lancar', 'emerald');
 
             } else if (customerViewMode === 'WORST_SUPPLIER') {
-                custTitle.innerText = "Top Worst Suppliers (Max OVD > 60 Hari & Tot OVD > 90 Hari):";
+                custTitle.innerText = "Top Worst Suppliers [ABF Only] (Max OVD > 60 Hari & Tot OVD > 90 Hari):";
                 custTitle.className = "text-xs text-rose-400 uppercase font-bold tracking-wider mb-1";
 
                 const top3WorstSupp = Object.entries(worstSupplierMap)
