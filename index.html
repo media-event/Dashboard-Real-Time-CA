@@ -41,7 +41,7 @@
             <div class="flex items-center gap-3 self-end sm:self-center">
                 <div class="flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300">
                     <span id="sync-status-indicator" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
-                    <span id="sync-status-text">Menghubungkan...</span>
+                    <span id="sync-status-text">Inisialisasi...</span>
                 </div>
 
                 <button id="btn-sync" onclick="fetchGoogleSheetData()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition flex items-center gap-2 shadow-lg shadow-indigo-600/20">
@@ -266,7 +266,6 @@
                         </div>
                     </div>
 
-                    <!-- DYNAMIC CA ALERT BADGES DI DALAM KPI CARD AC -->
                     <div id="kpi-ac-ca-alerts" class="hidden mt-2 pt-1.5 border-t border-slate-700/60 space-y-1"></div>
                 </div>
 
@@ -551,11 +550,11 @@
 
     <script>
         const SPREADSHEET_ID = '1VUCL0zZIhNrc6X3bhWJL_hIDrKnhZXJm38DPCM2YHMU';
-        const GID_AR_INFO = '1098227073';   // Sumber utama: AR Info 16/11/26
-        const GID_DATA_CREDIT = '0';        // Sumber pengayaan metadata: Project Owner, Segment, Provinsi
+        const GID_AR_INFO = '1098227073';
+        const GID_DATA_CREDIT = '0';
 
         let rawData = [];
-        let creditMetaMap = {};             // Mapping NO_KONTRAK -> { owner, segment, lokasi }
+        let creditMetaMap = {};
         let filteredData = [];
         let warningAccounts = [];
         let modalDisplayAccounts = [];
@@ -568,15 +567,29 @@
         let chartWilayah = null;
         let chartSegment = null;
 
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('click', function(e) {
+            const btnFilterCa = e.target.closest('.btn-filter-ca-row');
+            if (btnFilterCa) {
+                const caName = btnFilterCa.getAttribute('data-ca');
+                if (caName) selectCaDirectly(caName);
+                return;
+            }
+            const btnWarnCa = e.target.closest('.btn-warn-ca-row');
+            if (btnWarnCa) {
+                const caName = btnWarnCa.getAttribute('data-ca');
+                openReminderModal(caName || null);
+            }
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
             fetchGoogleSheetData();
         });
 
         function parseCurrencyNumber(valStr) {
-            if (!valStr || valStr === '-' || valStr === 'null' || valStr === 'undefined') return 0;
+            if (valStr === null || valStr === undefined) return 0;
             let str = String(valStr).replace(/Rp|RP|\s/g, '').trim();
-            if (!str) return 0;
-            
+            if (!str || str === '-' || str === 'null' || str === 'undefined') return 0;
+
             if (str.includes('.') && !str.includes(',')) {
                 str = str.replace(/\./g, '');
             } else if (str.includes('.') && str.includes(',')) {
@@ -588,36 +601,30 @@
             } else {
                 str = str.replace(/,/g, '');
             }
-            
+
             const num = parseFloat(str);
             return isNaN(num) ? 0 : num;
         }
 
         function parseNumberOnly(valStr) {
-            if (valStr === null || valStr === undefined || valStr === '-' || valStr === 'null' || valStr === 'undefined') return 0;
+            if (valStr === null || valStr === undefined) return 0;
             const str = String(valStr).trim();
-            if (!str) return 0;
+            if (!str || str === '-' || str === 'null' || str === 'undefined') return 0;
             const match = str.match(/-?\d+/);
             return match ? parseInt(match[0], 10) : 0;
         }
 
         function extractYearFromRow(row) {
-            const dateVal = getFieldValue(row, 'contract_date');
+            const dateVal = row.contract_date;
             if (dateVal) {
                 const str = String(dateVal).trim();
-                const yearMatch = str.match(/\b(20\d{2}|19\d{2})\b/);
+                const yearMatch = str.match(/(20\d{2}|19\d{2})/);
                 if (yearMatch) return yearMatch[1];
-                
-                // Format M/D/YY (contoh: 2/20/26 0:00 pada sheet AR Info)
-                const slashMatch = str.match(/^\d{1,2}\/\d{1,2}\/(\d{2})(?:\s|$)/);
-                if (slashMatch) {
-                    const yy = parseInt(slashMatch[1], 10);
-                    return yy >= 50 ? `19${slashMatch[1]}` : `20${slashMatch[1]}`;
-                }
 
-                const parts = str.split(/[\/\-\s]/);
-                for (let p of parts) {
-                    if (p.length === 4 && /^\d{4}$/.test(p)) return p;
+                const parts = str.split(' ')[0].split('/');
+                if (parts.length === 3 && parts[2].length === 2) {
+                    const yy = parseInt(parts[2], 10);
+                    return yy >= 50 ? '19' + parts[2] : '20' + parts[2];
                 }
             }
             return 'Lainnya';
@@ -651,152 +658,13 @@
             if (lower.includes('forestry') || lower.includes('hutan')) return 'Forestry';
             if (lower.includes('construction') || lower.includes('konstruksi')) return 'Construction';
 
-            return cleaned.replace(/\w\S*/g, function(txt){
+            return cleaned.replace(/\w\S*/g, function(txt) {
                 return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
             });
         }
 
-        // EXTRACTOR UTAMA LANGSUNG DARI SHEET AR INFO
-        function getFieldValue(row, fieldType) {
-            if (!row) return '';
-            const keys = Object.keys(row);
-
-            // Kolom C (Index 2): NO_KONTRAK
-            const noKontrakRaw = (() => {
-                const key = keys.find(k => /^NO_KONTRAK$|^NO KONTRAK$/i.test(k.trim())) || keys[2];
-                return key && row[key] ? String(row[key]).trim() : '';
-            })();
-
-            const metaMatch = noKontrakRaw ? creditMetaMap[noKontrakRaw.toUpperCase()] : null;
-
-            if (fieldType === 'no_kontrak') {
-                return noKontrakRaw;
-            }
-
-            // Kolom AY (Index 50): USER_CA
-            if (fieldType === 'ca_name') {
-                const key = keys.find(k => /^USER_CA$|CREDIT_ANALYST|NAMA_CA/i.test(k.trim())) || keys[50];
-                const val = key && row[key] ? String(row[key]).trim() : '';
-                return val && val !== '-' ? val : 'Unassigned';
-            }
-
-            // Kolom E (Index 4): NAMA_CUSTOMER
-            if (fieldType === 'customer') {
-                const key = keys.find(k => /^NAMA_CUSTOMER$|^NAMA CUSTOMER$|^CUSTOMER$/i.test(k.trim())) || keys[4];
-                return key && row[key] ? String(row[key]).trim() : '';
-            }
-            
-            // Kolom AU (Index 46): SUPPLIER_NAME
-            if (fieldType === 'supplier') {
-                const key = keys.find(k => /^SUPPLIER_NAME$|^NAMA_SUPPLIER$|^SUPPLIER$/i.test(k.trim())) || keys[46];
-                const val = key && row[key] ? String(row[key]).trim() : '';
-                return val !== '-' ? val : '';
-            }
-
-            // Kolom F (Index 5): OBJ (Product: ABF, Factoring, dll.)
-            if (fieldType === 'product') {
-                const key = keys.find(k => /^OBJ$|^Product$/i.test(k.trim())) || keys[5];
-                const val = key && row[key] ? String(row[key]).trim() : '';
-                return val && val !== '-' ? val : 'OTHER';
-            }
-
-            // Kolom G (Index 6): BTM (Brand / Tipe Unit)
-            if (fieldType === 'brand_unit') {
-                const key = keys.find(k => /^BTM$|^Brand$|^NAMA_UNIT$/i.test(k.trim())) || keys[6];
-                let val = key && row[key] ? String(row[key]).trim() : '';
-                if (val && val !== '-') {
-                    const brandMatch = val.match(/^(ISUZU|HINO|MITSUBISHI|KOBELCO|XCMG|JCB|SANY|CAT|CATERPILLAR|KOMATSU|UD TRUCKS|UD|SHACMAN|VOLVO|DAIHATSU|TOYOTA|SANWARD|HELI|LIUGONG|ZOOMLION|MERCEDES|MERCY|FAW|ZOMLION|SUMITOMO)/i);
-                    if (brandMatch) {
-                        let matched = brandMatch[0].toUpperCase();
-                        if (matched === 'MERCY') return 'MERCEDES';
-                        if (matched === 'CATERPILLAR') return 'CAT';
-                        return matched;
-                    }
-                    const firstWord = val.split(' ')[0].trim().toUpperCase();
-                    if (firstWord.length > 1) return firstWord;
-                }
-                return val || '-';
-            }
-
-            // Project Owner (diambil dari mapping DATA CREDIT jika tersedia)
-            if (fieldType === 'owner') {
-                if (metaMatch && metaMatch.owner) return metaMatch.owner;
-                const key = keys.find(k => /Project Owner|PROJECT_OWNER|OWNER/i.test(k.trim()));
-                return key && row[key] ? String(row[key]).trim() : '';
-            }
-
-            // Provinsi / Lokasi (prioritas Provinsi dari mapping DATA CREDIT, fallback CITY Kolom AP / Index 41 di AR Info)
-            if (fieldType === 'lokasi') {
-                if (metaMatch && metaMatch.lokasi) return metaMatch.lokasi;
-                const key = keys.find(k => /Lokasi Project \(Provinsi\)|PROVINSI|^CITY$/i.test(k.trim())) || keys[41];
-                const val = key && row[key] ? String(row[key]).trim() : '';
-                return val && val !== '-' ? val : 'Lainnya';
-            }
-
-            // Segment Industry (diambil dari mapping DATA CREDIT jika tersedia)
-            if (fieldType === 'segment') {
-                if (metaMatch && metaMatch.segment) return metaMatch.segment;
-                const key = keys.find(k => /^Segment$|^SEGMENT$|INDUSTRI/i.test(k.trim()));
-                return key && row[key] ? normalizeSegmentName(row[key]) : '';
-            }
-
-            // Kolom Y (Index 24): OVD_DAYS
-            if (fieldType === 'ovd_days') {
-                const key = keys.find(k => /^OVD_DAYS$|^OVD DAYS$/i.test(k.trim())) || keys[24];
-                return key ? parseNumberOnly(row[key]) : 0;
-            }
-
-            // Kolom Z (Index 25): MAX_OVD
-            if (fieldType === 'max_ovd') {
-                const key = keys.find(k => /^MAX_OVD$|^MAX OVD$/i.test(k.trim())) || keys[25];
-                return key ? parseNumberOnly(row[key]) : 0;
-            }
-
-            // Kolom AA (Index 26): TOT_OVD
-            if (fieldType === 'tot_ovd') {
-                const key = keys.find(k => /^TOT_OVD$|^TOT OVD$/i.test(k.trim())) || keys[26];
-                return key ? parseNumberOnly(row[key]) : 0;
-            }
-            
-            // Bucket AR berdasarkan OVD_DAYS berjalan (Kolom Y)
-            if (fieldType === 'ar7') {
-                return getFieldValue(row, 'ovd_days') > 7 ? 1 : 0;
-            }
-            if (fieldType === 'ar30') {
-                return getFieldValue(row, 'ovd_days') > 30 ? 1 : 0;
-            }
-            if (fieldType === 'ar60' || fieldType === 'ar90') {
-                return getFieldValue(row, 'ovd_days') > 60 ? 1 : 0;
-            }
-
-            // Kolom AH (Index 33): CONTRACT_STATUS
-            if (fieldType === 'contract_status') {
-                const key = keys.find(k => /^CONTRACT_STATUS$/i.test(k.trim())) || keys[33];
-                return key && row[key] ? String(row[key]).trim() : '';
-            }
-
-            // Kolom M (Index 12): AF_KONTRAK
-            if (fieldType === 'af_kontrak') {
-                const key = keys.find(k => /^AF_KONTRAK$|^AF Kontrak$/i.test(k.trim())) || keys[12];
-                return key && row[key] ? String(row[key]).trim() : '0';
-            }
-
-            // Kolom O (Index 14): AFOUT (AF Outstanding)
-            if (fieldType === 'outstanding') {
-                const key = keys.find(k => /^AFOUT$|^AF_OUTSTANDING$|^AF Outstanding$|^OUTSTANDING$/i.test(k.trim())) || keys[14];
-                return key && row[key] ? String(row[key]).trim() : '0';
-            }
-
-            // Kolom S (Index 18): TGL_BOOKING atau Kolom R (Index 17): CONTRACT_DATE
-            if (fieldType === 'contract_date') {
-                const key = keys.find(k => /^TGL_BOOKING$|^CONTRACT_DATE$|Tanggal Booking/i.test(k.trim())) || keys[18] || keys[17];
-                return key && row[key] ? String(row[key]).trim() : '';
-            }
-            return '';
-        }
-
         function normalizeContractStatus(rawStatus) {
-            if (!rawStatus) return 'AC'; 
+            if (!rawStatus) return 'AC';
             const s = String(rawStatus).toUpperCase().trim();
             if (s === 'AC' || s.includes('ACTIVE') || s.includes('AKTIF') || s === '1') return 'AC';
             if (s === 'CL' || s.includes('CLOSE') || s.includes('CLOSED') || s.includes('SELESAI')) return 'CL';
@@ -805,66 +673,162 @@
             return 'AC';
         }
 
-        function parseCsvPromise(url) {
-            return new Promise((resolve, reject) => {
-                Papa.parse(url, {
-                    download: true,
-                    header: true,
-                    skipEmptyLines: 'greedy',
-                    complete: (results) => resolve(results.data || []),
-                    error: (err) => reject(err)
-                });
-            });
+        function extractBrandName(rawBtm) {
+            let val = rawBtm ? String(rawBtm).trim() : '';
+            if (!val || val === '-') return '-';
+            const brandMatch = val.match(/^(ISUZU|HINO|MITSUBISHI|KOBELCO|XCMG|JCB|SANY|CAT|CATERPILLAR|KOMATSU|UD TRUCKS|UD|SHACMAN|VOLVO|DAIHATSU|TOYOTA|SANWARD|HELI|LIUGONG|ZOOMLION|MERCEDES|MERCY|FAW|ZOMLION|SUMITOMO)/i);
+            if (brandMatch) {
+                let matched = brandMatch[0].toUpperCase();
+                if (matched === 'MERCY') return 'MERCEDES';
+                if (matched === 'CATERPILLAR') return 'CAT';
+                return matched;
+            }
+            const firstWord = val.split(' ')[0].trim().toUpperCase();
+            return firstWord.length > 1 ? firstWord : val;
+        }
+
+        async function fetchCsvRows(gid) {
+            const bust = Date.now();
+            const urls = [
+                `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}&_=${bust}`,
+                `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${gid}&_=${bust}`
+            ];
+
+            for (const url of urls) {
+                try {
+                    const resp = await fetch(url);
+                    if (!resp.ok) continue;
+                    const csvText = await resp.text();
+                    if (!csvText || csvText.trim().startsWith('<!DOCTYPE html')) continue;
+                    const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: 'greedy' });
+                    if (parsed && parsed.data && parsed.data.length > 1) {
+                        return parsed.data;
+                    }
+                } catch (err) {
+                    console.warn('Percobaan fetch URL gagal:', url, err);
+                }
+            }
+            throw new Error('Semua endpoint CSV gagal diakses');
+        }
+
+        function findHeaderRowIndex(rows, targetKeywords) {
+            const maxScan = Math.min(rows.length, 15);
+            for (let i = 0; i < maxScan; i++) {
+                const rowUpper = (rows[i] || []).map(c => String(c || '').trim().toUpperCase());
+                if (targetKeywords.some(kw => rowUpper.includes(kw))) {
+                    return i;
+                }
+            }
+            return 0;
+        }
+
+        function findColIndex(headers, patterns, fallbackIdx) {
+            for (let pat of patterns) {
+                const idx = headers.findIndex(h => pat.test(h));
+                if (idx !== -1) return idx;
+            }
+            return fallbackIdx;
         }
 
         async function fetchGoogleSheetData() {
             updateSyncUI('loading', 'Memuat Data AR Info...');
-            const urlArInfo = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_AR_INFO}`;
-            const urlDataCredit = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_DATA_CREDIT}`;
-
             try {
-                const [arRows, creditRows] = await Promise.all([
-                    parseCsvPromise(urlArInfo),
-                    parseCsvPromise(urlDataCredit).catch(err => {
-                        console.warn('Metadata Data Credit tidak termuat, tetap lanjut dengan AR Info:', err);
-                        return [];
-                    })
-                ]);
-
-                // Bangun kamus pengayaan metadata (Project Owner, Segment, Provinsi) dari DATA CREDIT
-                creditMetaMap = {};
-                creditRows.forEach(r => {
-                    const keys = Object.keys(r);
-                    const kKey = keys.find(k => /^NO_KONTRAK$|^NO KONTRAK$/i.test(k.trim())) || keys[0];
-                    const noKontrak = kKey && r[kKey] ? String(r[kKey]).trim().toUpperCase() : '';
-                    if (!noKontrak) return;
-
-                    const ownerKey = keys.find(k => /Project Owner|PROJECT_OWNER/i.test(k.trim())) || keys[9];
-                    const provKey = keys.find(k => /Lokasi Project \(Provinsi\)|PROVINSI/i.test(k.trim())) || keys[12];
-                    const segKey = keys.find(k => /^Segment$|^SEGMENT$/i.test(k.trim())) || keys[13];
-
-                    creditMetaMap[noKontrak] = {
-                        owner: ownerKey && r[ownerKey] ? String(r[ownerKey]).trim() : '',
-                        lokasi: provKey && r[provKey] ? String(r[provKey]).trim() : '',
-                        segment: segKey && r[segKey] ? normalizeSegmentName(r[segKey]) : ''
-                    };
-                });
-
-                if (arRows && arRows.length > 0) {
-                    // Filter baris yang memiliki NO_KONTRAK valid dari sheet AR Info
-                    rawData = arRows.filter(r => {
-                        const keys = Object.keys(r);
-                        const kKey = keys.find(k => /^NO_KONTRAK$|^NO KONTRAK$/i.test(k.trim())) || keys[2];
-                        return kKey && r[kKey] && String(r[kKey]).trim() !== '';
-                    });
-                    updateSyncUI('success', `Live AR Info: ${rawData.length} Kontrak`);
-                    processDataAndRender();
-                } else {
-                    updateSyncUI('error', 'Gagal memuat AR Info');
+                const arGrid = await fetchCsvRows(GID_AR_INFO);
+                if (!arGrid || arGrid.length < 2) {
+                    updateSyncUI('error', 'AR Info Kosong / Akses Ditolak');
+                    return;
                 }
+
+                let creditGrid = [];
+                try {
+                    creditGrid = await fetchCsvRows(GID_DATA_CREDIT);
+                } catch (e) {
+                    console.warn('Metadata DATA CREDIT dilewati:', e);
+                }
+
+                creditMetaMap = {};
+                if (creditGrid && creditGrid.length > 1) {
+                    const cHdrIdx = findHeaderRowIndex(creditGrid, ['NO_KONTRAK', 'NO KONTRAK', 'NAMA_CUSTOMER']);
+                    const cHeaders = creditGrid[cHdrIdx].map(h => String(h || '').trim().toUpperCase());
+
+                    const cIdxKontrak = findColIndex(cHeaders, [/^NO_KONTRAK$/, /^NO KONTRAK$/], 0);
+                    const cIdxOwner = findColIndex(cHeaders, [/PROJECT OWNER/, /PROJECT_OWNER/], 9);
+                    const cIdxProv = findColIndex(cHeaders, [/LOKASI PROJECT/, /PROVINSI/], 12);
+                    const cIdxSeg = findColIndex(cHeaders, [/^SEGMENT$/], 13);
+
+                    for (let i = cHdrIdx + 1; i < creditGrid.length; i++) {
+                        const r = creditGrid[i];
+                        const nk = r[cIdxKontrak] ? String(r[cIdxKontrak]).trim().toUpperCase() : '';
+                        if (!nk) continue;
+                        creditMetaMap[nk] = {
+                            owner: r[cIdxOwner] ? String(r[cIdxOwner]).trim() : '',
+                            lokasi: r[cIdxProv] ? String(r[cIdxProv]).trim() : '',
+                            segment: r[cIdxSeg] ? normalizeSegmentName(r[cIdxSeg]) : ''
+                        };
+                    }
+                }
+
+                const aHdrIdx = findHeaderRowIndex(arGrid, ['NO_KONTRAK', 'NAMA_CUSTOMER', 'AF_KONTRAK', 'AFOUT']);
+                const aHeaders = arGrid[aHdrIdx].map(h => String(h || '').trim().toUpperCase());
+
+                const idxKontrak = findColIndex(aHeaders, [/^NO_KONTRAK$/, /^NO KONTRAK$/], 2);
+                const idxCust = findColIndex(aHeaders, [/^NAMA_CUSTOMER$/, /^CUSTOMER$/], 4);
+                const idxObj = findColIndex(aHeaders, [/^OBJ$/, /^PRODUCT$/], 5);
+                const idxBtm = findColIndex(aHeaders, [/^BTM$/, /^BRAND$/], 6);
+                const idxAfKontrak = findColIndex(aHeaders, [/^AF_KONTRAK$/, /^AF KONTRAK$/], 12);
+                const idxAfOut = findColIndex(aHeaders, [/^AFOUT$/, /^AF_OUTSTANDING$/, /^OUTSTANDING$/], 14);
+                const idxContractDate = findColIndex(aHeaders, [/^CONTRACT_DATE$/], 17);
+                const idxTglBooking = findColIndex(aHeaders, [/^TGL_BOOKING$/], 18);
+                const idxOvdDays = findColIndex(aHeaders, [/^OVD_DAYS$/, /^OVD DAYS$/], 24);
+                const idxMaxOvd = findColIndex(aHeaders, [/^MAX_OVD$/, /^MAX OVD$/], 25);
+                const idxTotOvd = findColIndex(aHeaders, [/^TOT_OVD$/, /^TOT OVD$/], 26);
+                const idxStatus = findColIndex(aHeaders, [/^CONTRACT_STATUS$/], 33);
+                const idxCity = findColIndex(aHeaders, [/^CITY$/, /^PROVINSI$/], 41);
+                const idxSupplier = findColIndex(aHeaders, [/^SUPPLIER_NAME$/, /^SUPPLIER$/], 46);
+                const idxCa = findColIndex(aHeaders, [/^USER_CA$/, /^CREDIT_ANALYST$/], 50);
+
+                const parsedRows = [];
+                for (let i = aHdrIdx + 1; i < arGrid.length; i++) {
+                    const r = arGrid[i];
+                    const noKontrak = r[idxKontrak] ? String(r[idxKontrak]).trim() : '';
+                    if (!noKontrak || noKontrak.toUpperCase() === 'NO_KONTRAK') continue;
+
+                    const meta = creditMetaMap[noKontrak.toUpperCase()] || {};
+                    const caRaw = r[idxCa] ? String(r[idxCa]).trim() : '';
+                    const suppRaw = r[idxSupplier] ? String(r[idxSupplier]).trim() : '';
+                    const cityRaw = r[idxCity] ? String(r[idxCity]).trim() : '';
+                    const objRaw = r[idxObj] ? String(r[idxObj]).trim() : '';
+                    const ovdDays = parseNumberOnly(r[idxOvdDays]);
+
+                    parsedRows.push({
+                        no_kontrak: noKontrak,
+                        ca_name: caRaw && caRaw !== '-' ? caRaw : 'Unassigned',
+                        customer: r[idxCust] ? String(r[idxCust]).trim() : '',
+                        supplier: suppRaw && suppRaw !== '-' ? suppRaw : '',
+                        product: objRaw && objRaw !== '-' ? objRaw : 'OTHER',
+                        brand_unit: extractBrandName(r[idxBtm]),
+                        owner: meta.owner || '',
+                        lokasi: meta.lokasi || (cityRaw && cityRaw !== '-' ? cityRaw : 'Lainnya'),
+                        segment: meta.segment || '',
+                        ovd_days: ovdDays,
+                        max_ovd: parseNumberOnly(r[idxMaxOvd]),
+                        tot_ovd: parseNumberOnly(r[idxTotOvd]),
+                        ar7: ovdDays > 7 ? 1 : 0,
+                        ar30: ovdDays > 30 ? 1 : 0,
+                        ar60: ovdDays > 60 ? 1 : 0,
+                        contract_status: normalizeContractStatus(r[idxStatus]),
+                        af_kontrak_num: parseCurrencyNumber(r[idxAfKontrak]),
+                        outstanding_num: parseCurrencyNumber(r[idxAfOut]),
+                        contract_date: (r[idxTglBooking] || r[idxContractDate] || '').trim()
+                    });
+                }
+
+                rawData = parsedRows;
+                updateSyncUI('success', `Live AR Info: ${rawData.length} Kontrak`);
+                processDataAndRender();
             } catch (err) {
-                console.error('Sync error:', err);
-                updateSyncUI('error', 'Gagal Sync Live');
+                console.error('Sync Error:', err);
+                updateSyncUI('error', 'Gagal Sync (Cek Share Link Sheet)');
             }
         }
 
@@ -894,10 +858,10 @@
         }
 
         function populateFilterDropdowns() {
-            const caList = [...new Set(rawData.map(d => getFieldValue(d, 'ca_name')).filter(v => v && v !== 'Unassigned'))];
-            const segments = [...new Set(rawData.map(d => getFieldValue(d, 'segment')).filter(Boolean))];
-            const customers = [...new Set(rawData.map(d => getFieldValue(d, 'customer')).filter(Boolean))];
-            const lokasis = [...new Set(rawData.map(d => getFieldValue(d, 'lokasi')).filter(Boolean))];
+            const caList = [...new Set(rawData.map(d => d.ca_name).filter(v => v && v !== 'Unassigned'))];
+            const segments = [...new Set(rawData.map(d => d.segment).filter(Boolean))];
+            const customers = [...new Set(rawData.map(d => d.customer).filter(Boolean))];
+            const lokasis = [...new Set(rawData.map(d => d.lokasi).filter(Boolean))];
 
             updateSelectOptions('filter-ca', caList, 'Semua Credit Analyst (CA)');
             updateSelectOptions('filter-segment', segments, 'Semua Segment');
@@ -958,26 +922,17 @@
             const searchVal = document.getElementById('search-input').value.toLowerCase().trim();
 
             filteredData = rawData.filter(row => {
-                const rowCa = getFieldValue(row, 'ca_name');
-                const rowCust = getFieldValue(row, 'customer');
-                const rowSupp = getFieldValue(row, 'supplier');
-                const rowProd = getFieldValue(row, 'product');
-                const rowBrand = getFieldValue(row, 'brand_unit');
-                const rowOwner = getFieldValue(row, 'owner');
-                const rowLokasi = getFieldValue(row, 'lokasi');
-                const rowSeg = getFieldValue(row, 'segment');
-                const rowKontrak = getFieldValue(row, 'no_kontrak');
-                const rowStatus = normalizeContractStatus(getFieldValue(row, 'contract_status'));
+                const matchCa = !caVal || row.ca_name === caVal;
+                const matchStatus = !statusVal || row.contract_status === statusVal;
+                const matchSeg = !segVal || row.segment === segVal;
+                const matchCust = !custVal || row.customer === custVal;
+                const matchLok = !lokVal || row.lokasi === lokVal;
 
-                const matchCa = !caVal || rowCa === caVal;
-                const matchStatus = !statusVal || rowStatus === statusVal;
-                const matchSeg = !segVal || rowSeg === segVal;
-                const matchCust = !custVal || rowCust === custVal;
-                const matchLok = !lokVal || rowLokasi === lokVal;
-                const searchHaystack = `${rowCa} ${rowCust} ${rowSupp} ${rowOwner} ${rowProd} ${rowBrand} ${rowLokasi} ${rowSeg} ${rowKontrak} ${rowStatus}`.toLowerCase();
-                const matchSearch = !searchVal || searchHaystack.includes(searchVal);
+                if (!matchCa || !matchStatus || !matchSeg || !matchCust || !matchLok) return false;
+                if (!searchVal) return true;
 
-                return matchCa && matchStatus && matchSeg && matchCust && matchLok && matchSearch;
+                const searchHaystack = `${row.ca_name} ${row.customer} ${row.supplier} ${row.owner} ${row.product} ${row.brand_unit} ${row.lokasi} ${row.segment} ${row.no_kontrak} ${row.contract_status}`.toLowerCase();
+                return searchHaystack.includes(searchVal);
             });
 
             evaluateEarlyWarningReminders();
@@ -999,23 +954,19 @@
             applyFilters();
         }
 
-        // LOGIKA EARLY WARNING REMINDER (OVD_DAYS >= 20 && OVD_DAYS < 30 PADA KONTRAK AKTIF)
         function evaluateEarlyWarningReminders() {
             warningAccounts = [];
             filteredData.forEach(row => {
-                const status = normalizeContractStatus(getFieldValue(row, 'contract_status'));
-                if (status !== 'AC') return;
-
-                const ovdDays = getFieldValue(row, 'ovd_days');
-                if (ovdDays >= 20 && ovdDays < 30) {
+                if (row.contract_status !== 'AC') return;
+                if (row.ovd_days >= 20 && row.ovd_days < 30) {
                     warningAccounts.push({
-                        no_kontrak: getFieldValue(row, 'no_kontrak') || '-',
-                        ca_name: getFieldValue(row, 'ca_name') || 'Unassigned',
-                        customer: formatEntityDisplay(getFieldValue(row, 'customer') || '-'),
-                        ovd_days: ovdDays,
-                        max_ovd: getFieldValue(row, 'max_ovd'),
-                        outstanding: parseCurrencyNumber(getFieldValue(row, 'outstanding')),
-                        owner: formatEntityDisplay(getFieldValue(row, 'owner') || '-')
+                        no_kontrak: row.no_kontrak || '-',
+                        ca_name: row.ca_name || 'Unassigned',
+                        customer: formatEntityDisplay(row.customer || '-'),
+                        ovd_days: row.ovd_days,
+                        max_ovd: row.max_ovd,
+                        outstanding: row.outstanding_num,
+                        owner: formatEntityDisplay(row.owner || '-')
                     });
                 }
             });
@@ -1116,20 +1067,18 @@
             });
         }
 
-        // RENDER SCORECARD KUALITAS PEMBAYARAN PER CA + PERSENTASE NPL (> 90 HARI BERBASIS AFOUT)
         function renderCaPerformanceScorecard() {
             const tbody = document.getElementById('ca-performance-body');
             const caStats = {};
             const selectedCa = document.getElementById('filter-ca').value;
 
             filteredData.forEach(row => {
-                const status = normalizeContractStatus(getFieldValue(row, 'contract_status'));
-                if (status !== 'AC') return;
+                if (row.contract_status !== 'AC') return;
 
-                const ca = getFieldValue(row, 'ca_name') || 'Unassigned';
-                const ovd = getFieldValue(row, 'ovd_days');
-                const maxOvd = getFieldValue(row, 'max_ovd');
-                const os = parseCurrencyNumber(getFieldValue(row, 'outstanding'));
+                const ca = row.ca_name || 'Unassigned';
+                const ovd = row.ovd_days;
+                const maxOvd = row.max_ovd;
+                const os = row.outstanding_num;
 
                 if (!caStats[ca]) {
                     caStats[ca] = {
@@ -1185,10 +1134,10 @@
 
                 const isSelected = selectedCa && selectedCa === caName;
                 const rowHighlight = isSelected ? 'bg-indigo-950/40 ring-1 ring-inset ring-indigo-500/50' : 'hover:bg-slate-700/40';
-                const safeCaArg = escapeHtml(caName).replace(/'/g, "\\'");
+                const safeCaAttr = escapeHtml(caName);
 
                 const warnCellContent = st.warn20_29 > 0
-                    ? `<button onclick="openReminderModal('${safeCaArg}')" class="px-2 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/40 text-orange-300 border border-orange-500/40 font-mono font-extrabold inline-flex items-center gap-1 transition" title="Klik untuk detail akun 20–29 hari CA ini">
+                    ? `<button type="button" data-ca="${safeCaAttr}" class="btn-warn-ca-row px-2 py-0.5 rounded bg-orange-500/20 hover:bg-orange-500/40 text-orange-300 border border-orange-500/40 font-mono font-extrabold inline-flex items-center gap-1 transition" title="Klik untuk detail akun 20–29 hari CA ini">
                         <span>${st.warn20_29}</span> <i class="fa-solid fa-bell text-[9px] animate-bounce"></i>
                        </button>`
                     : `<span class="font-mono text-slate-500">0</span>`;
@@ -1196,8 +1145,8 @@
                 return `
                     <tr class="${rowHighlight} transition">
                         <td class="px-3 py-2.5 font-bold text-slate-100">
-                            <button onclick="selectCaDirectly('${safeCaArg}')" class="text-left hover:text-indigo-300 transition flex items-center gap-2" title="Klik untuk filter/unfilter CA ini">
-                                <span>${escapeHtml(caName)}</span>
+                            <button type="button" data-ca="${safeCaAttr}" class="btn-filter-ca-row text-left hover:text-indigo-300 transition flex items-center gap-2" title="Klik untuk filter/unfilter CA ini">
+                                <span>${safeCaAttr}</span>
                                 ${isSelected ? '<span class="px-1.5 py-0.5 text-[9px] rounded bg-indigo-500/30 text-indigo-200 border border-indigo-400/40">AKTIF</span>' : ''}
                             </button>
                         </td>
@@ -1223,11 +1172,9 @@
             currentArFilter = status;
             ['ALL', 'AC', 'CL', 'PT', 'RP'].forEach(s => {
                 const btn = document.getElementById(`ar-btn-${s}`);
-                if (s === status) {
-                    btn.className = 'px-2 py-0.5 rounded font-medium bg-indigo-600 text-white';
-                } else {
-                    btn.className = 'px-2 py-0.5 rounded font-medium text-slate-400 hover:text-white';
-                }
+                btn.className = s === status
+                    ? 'px-2 py-0.5 rounded font-medium bg-indigo-600 text-white'
+                    : 'px-2 py-0.5 rounded font-medium text-slate-400 hover:text-white';
             });
             renderKPIs();
         }
@@ -1254,11 +1201,9 @@
             currentProvFilter = status;
             ['ALL', 'AC', 'CL', 'PT', 'RP'].forEach(s => {
                 const btn = document.getElementById(`prov-btn-${s}`);
-                if (s === status) {
-                    btn.className = 'px-2.5 py-0.5 rounded font-medium bg-indigo-600 text-white';
-                } else {
-                    btn.className = 'px-2.5 py-0.5 rounded font-medium text-slate-400 hover:text-white';
-                }
+                btn.className = s === status
+                    ? 'px-2.5 py-0.5 rounded font-medium bg-indigo-600 text-white'
+                    : 'px-2.5 py-0.5 rounded font-medium text-slate-400 hover:text-white';
             });
             renderWilayahChart();
         }
@@ -1267,13 +1212,13 @@
             const yearMap = {};
             const productAfMap = {};
             let grandTotalAfSum = 0;
-            
+
             const uniqueCustomers = new Set();
             const uniqueOwners = new Set();
 
             let countAC = 0, sumAfAC = 0, sumOutstandingAC = 0;
-            let countCL = 0, sumAfCL = 0, sumOutstandingCL = 0;
-            let countPT = 0, sumAfPT = 0, sumOutstandingPT = 0;
+            let countCL = 0, sumAfCL = 0;
+            let countPT = 0, sumAfPT = 0;
             let countRP = 0, sumAfRP = 0, sumOutstandingRP = 0;
 
             let acWarn20Count = 0;
@@ -1283,17 +1228,15 @@
             const statusProductBreakdown = { AC: {}, CL: {}, PT: {}, RP: {} };
 
             filteredData.forEach(row => {
-                const cName = getFieldValue(row, 'customer');
-                if (cName) uniqueCustomers.add(normalizeEntityName(cName));
-
-                const oName = getFieldValue(row, 'owner');
-                if (oName) uniqueOwners.add(normalizeEntityName(oName));
+                if (row.customer) uniqueCustomers.add(normalizeEntityName(row.customer));
+                if (row.owner) uniqueOwners.add(normalizeEntityName(row.owner));
 
                 const yr = extractYearFromRow(row);
-                const afNumRow = parseCurrencyNumber(getFieldValue(row, 'af_kontrak'));
-                const osNumRow = parseCurrencyNumber(getFieldValue(row, 'outstanding'));
-                const prodName = getFieldValue(row, 'product') || 'OTHER';
-                const ovdDays = getFieldValue(row, 'ovd_days');
+                const afNumRow = row.af_kontrak_num;
+                const osNumRow = row.outstanding_num;
+                const prodName = row.product || 'OTHER';
+                const ovdDays = row.ovd_days;
+                const statusCode = row.contract_status;
 
                 grandTotalAfSum += afNumRow;
                 productAfMap[prodName] = (productAfMap[prodName] || 0) + afNumRow;
@@ -1302,8 +1245,6 @@
                 yearMap[yr].count++;
                 yearMap[yr].totalAf += afNumRow;
 
-                const statusCode = normalizeContractStatus(getFieldValue(row, 'contract_status'));
-                
                 if (statusProductBreakdown[statusCode]) {
                     if (!statusProductBreakdown[statusCode][prodName]) {
                         statusProductBreakdown[statusCode][prodName] = { count: 0, af: 0, os: 0 };
@@ -1323,8 +1264,8 @@
                         acNplOs += osNumRow;
                     }
                 }
-                else if (statusCode === 'CL') { countCL++; sumAfCL += afNumRow; sumOutstandingCL += osNumRow; }
-                else if (statusCode === 'PT') { countPT++; sumAfPT += afNumRow; sumOutstandingPT += osNumRow; }
+                else if (statusCode === 'CL') { countCL++; sumAfCL += afNumRow; }
+                else if (statusCode === 'PT') { countPT++; sumAfPT += afNumRow; }
                 else if (statusCode === 'RP') { countRP++; sumAfRP += afNumRow; sumOutstandingRP += osNumRow; }
             });
 
@@ -1337,7 +1278,7 @@
             document.getElementById('kpi-total-af-overall').innerText = fmtOverallAf;
 
             const productContainer = document.getElementById('kpi-product-breakdown');
-            const sortedProducts = Object.entries(productAfMap).sort((a,b) => b[1] - a[1]);
+            const sortedProducts = Object.entries(productAfMap).sort((a, b) => b[1] - a[1]);
             if (sortedProducts.length > 0) {
                 productContainer.innerHTML = sortedProducts.map(([pName, pAf]) => {
                     const fmtAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(pAf);
@@ -1368,9 +1309,9 @@
                 yearBreakdownContainer.innerHTML = `<span class="text-slate-500 italic">Tidak ada data tanggal</span>`;
             }
 
-            // KPI CARD AC + DYNAMIC ALERT PER CA
+            // KPI CARD AC
             document.getElementById('kpi-status-ac').innerText = countAC;
-            document.getElementById('kpi-status-ac-sub').innerText = `${totalKontrak > 0 ? ((countAC/totalKontrak)*100).toFixed(1) : 0}% dari Total Kontrak`;
+            document.getElementById('kpi-status-ac-sub').innerText = `${totalKontrak > 0 ? ((countAC / totalKontrak) * 100).toFixed(1) : 0}% dari Total Kontrak`;
             document.getElementById('kpi-ac-af').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumAfAC);
             const acOsPct = sumAfAC > 0 ? ((sumOutstandingAC / sumAfAC) * 100).toFixed(1) : '0';
             document.getElementById('kpi-ac-outstanding').innerHTML = `${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumOutstandingAC)} (<span id="kpi-ac-os-pct">${acOsPct}%</span>)`;
@@ -1416,4 +1357,537 @@
                 cardAc.className = 'bg-slate-800/70 border border-emerald-500/30 rounded-2xl p-4 flex flex-col justify-between transition';
             }
 
-            document.getElementById('kpi-status-cl').innerText = count
+            document.getElementById('kpi-status-cl').innerText = countCL;
+            document.getElementById('kpi-status-cl-sub').innerText = `${totalKontrak > 0 ? ((countCL / totalKontrak) * 100).toFixed(1) : 0}% dari Total Kontrak`;
+            document.getElementById('kpi-cl-af').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumAfCL);
+            renderStatusProductBreakdown('cl-product-breakdown', statusProductBreakdown.CL, 'slate');
+
+            document.getElementById('kpi-status-pt').innerText = countPT;
+            document.getElementById('kpi-status-pt-sub').innerText = `${totalKontrak > 0 ? ((countPT / totalKontrak) * 100).toFixed(1) : 0}% dari Total Kontrak`;
+            document.getElementById('kpi-pt-af').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumAfPT);
+            renderStatusProductBreakdown('pt-product-breakdown', statusProductBreakdown.PT, 'blue');
+
+            document.getElementById('kpi-status-rp').innerText = countRP;
+            document.getElementById('kpi-status-rp-sub').innerText = `${totalKontrak > 0 ? ((countRP / totalKontrak) * 100).toFixed(1) : 0}% dari Total Kontrak`;
+            document.getElementById('kpi-rp-af').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumAfRP);
+            const rpOsPct = sumAfRP > 0 ? ((sumOutstandingRP / sumAfRP) * 100).toFixed(1) : '0';
+            document.getElementById('kpi-rp-outstanding').innerHTML = `${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(sumOutstandingRP)} (<span id="kpi-rp-os-pct">${rpOsPct}%</span>)`;
+            renderStatusProductBreakdown('rp-product-breakdown', statusProductBreakdown.RP, 'rose');
+
+            // AR INFO & PERFORMANCE
+            const arBaseData = filteredData.filter(row => {
+                if (currentArFilter === 'ALL') return true;
+                return row.contract_status === currentArFilter;
+            });
+
+            const totalArBase = arBaseData.length;
+            let ar7Count = 0, ar20Count = 0, ar20OsSum = 0, ar30Count = 0, ar60Count = 0;
+
+            const brandArMap = { 7: {}, 30: {}, 60: {} };
+            const goodPayerMap = {};
+            const worstPayerMap = {};
+            const goodSupplierMap = {};
+            const worstSupplierMap = {};
+
+            arBaseData.forEach(row => {
+                const ovdDays = row.ovd_days;
+                const maxOvd = row.max_ovd;
+                const totOvd = row.tot_ovd;
+
+                const cName = formatEntityDisplay(row.customer || 'Unknown Customer');
+                const sName = formatEntityDisplay(row.supplier || '');
+                const pName = row.product || '';
+                const bName = row.brand_unit;
+
+                const afNumRow = row.af_kontrak_num;
+                const osNumRow = row.outstanding_num;
+
+                if (ovdDays >= 20 && ovdDays < 30) {
+                    ar20Count++;
+                    ar20OsSum += osNumRow;
+                }
+
+                if (row.ar7 >= 1) {
+                    ar7Count++;
+                    if (bName && bName !== '-') brandArMap[7][bName] = (brandArMap[7][bName] || 0) + 1;
+                }
+                if (row.ar30 >= 1) {
+                    ar30Count++;
+                    if (bName && bName !== '-') brandArMap[30][bName] = (brandArMap[30][bName] || 0) + 1;
+                }
+                if (row.ar60 >= 1) {
+                    ar60Count++;
+                    if (bName && bName !== '-') brandArMap[60][bName] = (brandArMap[60][bName] || 0) + 1;
+                }
+
+                if (maxOvd < 7 && totOvd < 7) {
+                    if (!goodPayerMap[cName]) goodPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
+                    goodPayerMap[cName].count += 1;
+                    goodPayerMap[cName].totalAf += afNumRow;
+                    goodPayerMap[cName].totalOs += osNumRow;
+
+                    if (pName.toUpperCase() === 'ABF' && sName && sName !== '-') {
+                        if (!goodSupplierMap[sName]) goodSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
+                        goodSupplierMap[sName].count += 1;
+                        goodSupplierMap[sName].totalAf += afNumRow;
+                        goodSupplierMap[sName].totalOs += osNumRow;
+                    }
+                }
+
+                if (maxOvd > 60 && totOvd > 90) {
+                    if (!worstPayerMap[cName]) worstPayerMap[cName] = { count: 0, totalAf: 0, totalOs: 0 };
+                    worstPayerMap[cName].count += 1;
+                    worstPayerMap[cName].totalAf += afNumRow;
+                    worstPayerMap[cName].totalOs += osNumRow;
+
+                    if (pName.toUpperCase() === 'ABF' && sName && sName !== '-') {
+                        if (!worstSupplierMap[sName]) worstSupplierMap[sName] = { count: 0, totalAf: 0, totalOs: 0 };
+                        worstSupplierMap[sName].count += 1;
+                        worstSupplierMap[sName].totalAf += afNumRow;
+                        worstSupplierMap[sName].totalOs += osNumRow;
+                    }
+                }
+            });
+
+            document.getElementById('ar7-val').innerText = `${ar7Count} Kr`;
+            document.getElementById('ar7-pct').innerText = `${totalArBase > 0 ? ((ar7Count / totalArBase) * 100).toFixed(1) : 0}%`;
+
+            const ar20Box = document.getElementById('ar20-card-box');
+            const ar20Bell = document.getElementById('ar20-bell-icon');
+            document.getElementById('ar20-val').innerText = `${ar20Count} Kr`;
+            document.getElementById('ar20-os').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', notation: 'compact', maximumFractionDigits: 1 }).format(ar20OsSum);
+
+            if (ar20Count > 0) {
+                ar20Box.className = 'text-center border-r border-slate-700/50 cursor-pointer bg-amber-500/15 hover:bg-amber-500/25 ring-1 ring-inset ring-amber-500/50 rounded transition px-1';
+                ar20Bell.className = 'fa-solid fa-bell text-[10px] text-amber-300 animate-bounce';
+            } else {
+                ar20Box.className = 'text-center border-r border-slate-700/50 cursor-pointer hover:bg-amber-500/10 rounded transition px-1';
+                ar20Bell.className = 'fa-solid fa-bell text-[10px] text-slate-500';
+            }
+
+            document.getElementById('ar30-val').innerText = `${ar30Count} Kr`;
+            document.getElementById('ar30-pct').innerText = `${totalArBase > 0 ? ((ar30Count / totalArBase) * 100).toFixed(1) : 0}%`;
+
+            document.getElementById('ar60-val').innerText = `${ar60Count} Kr`;
+            document.getElementById('ar60-pct').innerText = `${totalArBase > 0 ? ((ar60Count / totalArBase) * 100).toFixed(1) : 0}%`;
+
+            const custContainer = document.getElementById('ar-top3-customer');
+            const custTitle = document.getElementById('ar-top3-customer-title');
+
+            if (customerViewMode === 'GOOD') {
+                custTitle.innerText = "Top Good Payers (Max OVD < 7 Hari & Tot OVD < 7 Hari):";
+                custTitle.className = "text-xs text-emerald-400 uppercase font-bold tracking-wider mb-1";
+                const top3Good = Object.entries(goodPayerMap).sort((a, b) => b[1].totalAf - a[1].totalAf).slice(0, 3);
+                renderPayersOrSuppliersList(custContainer, top3Good, 'Unit Lancar', 'emerald');
+            } else if (customerViewMode === 'WORST') {
+                custTitle.innerText = "Top Worst Payers (Max OVD > 60 Hari & Tot OVD > 90 Hari):";
+                custTitle.className = "text-xs text-rose-400 uppercase font-bold tracking-wider mb-1";
+                const top3Worst = Object.entries(worstPayerMap).sort((a, b) => b[1].totalAf - a[1].totalAf).slice(0, 3);
+                renderPayersOrSuppliersList(custContainer, top3Worst, 'Unit OVD', 'rose');
+            } else if (customerViewMode === 'GOOD_SUPPLIER') {
+                custTitle.innerText = "Top Good Suppliers [ABF Only] (Max OVD < 7 Hari & Tot OVD < 7 Hari):";
+                custTitle.className = "text-xs text-emerald-400 uppercase font-bold tracking-wider mb-1";
+                const top3GoodSupp = Object.entries(goodSupplierMap).sort((a, b) => b[1].totalAf - a[1].totalAf).slice(0, 3);
+                renderPayersOrSuppliersList(custContainer, top3GoodSupp, 'Unit Lancar', 'emerald');
+            } else if (customerViewMode === 'WORST_SUPPLIER') {
+                custTitle.innerText = "Top Worst Suppliers [ABF Only] (Max OVD > 60 Hari & Tot OVD > 90 Hari):";
+                custTitle.className = "text-xs text-rose-400 uppercase font-bold tracking-wider mb-1";
+                const top3WorstSupp = Object.entries(worstSupplierMap).sort((a, b) => b[1].totalAf - a[1].totalAf).slice(0, 3);
+                renderPayersOrSuppliersList(custContainer, top3WorstSupp, 'Unit OVD', 'rose');
+            }
+
+            const top3Brand7 = Object.entries(brandArMap[7]).sort((a, b) => b[1] - a[1]).slice(0, 3);
+            const top3Brand30 = Object.entries(brandArMap[30]).sort((a, b) => b[1] - a[1]).slice(0, 3);
+            const top3Brand60 = Object.entries(brandArMap[60]).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+            const brandContainer = document.getElementById('ar-top3-brand');
+            brandContainer.innerHTML = `
+                <div class="space-y-1">
+                    <div class="flex items-center justify-between text-xs border-b border-slate-800 pb-0.5">
+                        <span class="text-yellow-400 font-semibold">&gt;7 Days:</span>
+                        <span class="text-slate-200 font-mono">${top3Brand7.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs border-b border-slate-800 pb-0.5">
+                        <span class="text-amber-400 font-semibold">&gt;30 Days:</span>
+                        <span class="text-slate-200 font-mono">${top3Brand30.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-rose-400 font-semibold">&gt;60 Days:</span>
+                        <span class="text-slate-200 font-mono">${top3Brand60.map(x => `${x[0]} (${x[1]})`).join(', ') || '-'}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPayersOrSuppliersList(container, dataList, unitLabel, themeColor) {
+            if (dataList.length === 0) {
+                container.innerHTML = `<span class="text-slate-500 italic">Tidak ada data sesuai kriteria</span>`;
+                return;
+            }
+
+            const isEmerald = themeColor === 'emerald';
+            const bgClass = isEmerald ? 'bg-emerald-950/40' : 'bg-rose-950/40';
+            const borderClass = isEmerald ? 'border-emerald-500/30' : 'border-rose-500/30';
+            const badgeBg = isEmerald ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+            const badgeUnitBg = isEmerald ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+            const afColor = isEmerald ? 'text-emerald-400' : 'text-rose-400';
+            const osColor = isEmerald ? 'text-cyan-400' : 'text-amber-400';
+
+            container.innerHTML = `
+                <div class="space-y-1.5">
+                    ${dataList.map(([name, dataObj], idx) => {
+                        const fmtAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalAf);
+                        const fmtOs = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(dataObj.totalOs);
+                        return `
+                            <div class="${bgClass} p-2 rounded-lg border ${borderClass} flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-5 h-5 rounded-full ${badgeBg} border flex items-center justify-center text-[10px] font-bold font-mono">#${idx + 1}</span>
+                                    <span class="text-slate-100 font-bold text-xs truncate max-w-[200px]" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold border ${badgeUnitBg}">${dataObj.count} ${unitLabel}</span>
+                                </div>
+                                <div class="flex items-center gap-3 text-[11px] font-mono text-slate-300 self-end sm:self-center">
+                                    <span>AF: <strong class="${afColor}">${fmtAf}</strong></span>
+                                    <span>OS: <strong class="${osColor}">${fmtOs}</strong></span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function renderStatusProductBreakdown(containerId, prodDataMap, themeColor) {
+            const container = document.getElementById(containerId);
+            const sorted = Object.entries(prodDataMap || {}).sort((a, b) => b[1].af - a[1].af);
+
+            if (sorted.length === 0) {
+                container.innerHTML = `<span class="text-slate-500 italic">Tidak ada data</span>`;
+                return;
+            }
+
+            let badgeColorClass = 'text-emerald-300';
+            if (themeColor === 'slate') badgeColorClass = 'text-slate-300';
+            if (themeColor === 'blue') badgeColorClass = 'text-blue-300';
+            if (themeColor === 'rose') badgeColorClass = 'text-rose-300';
+
+            container.innerHTML = sorted.map(([pName, pObj]) => {
+                const fmtAf = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(pObj.af);
+                const fmtOs = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(pObj.os);
+                return `
+                    <div class="bg-slate-900/60 p-1.5 rounded border border-slate-700/50 space-y-0.5">
+                        <div class="flex items-center justify-between font-medium">
+                            <span class="text-slate-200 truncate max-w-[130px]" title="${escapeHtml(pName)}">${escapeHtml(pName)}</span>
+                            <span class="${badgeColorClass} font-mono">${pObj.count} Kr</span>
+                        </div>
+                        <div class="flex items-center justify-between text-[9px] text-slate-400 font-mono">
+                            <span>AF: ${fmtAf}</span>
+                            <span>OS: ${fmtOs}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function countFrequencyNormalized(dataArray, propName) {
+            const counts = {};
+            const displayMap = {};
+
+            dataArray.forEach(item => {
+                const rawVal = item[propName];
+                if (rawVal && rawVal !== '-') {
+                    const normalizedKey = normalizeEntityName(rawVal);
+                    counts[normalizedKey] = (counts[normalizedKey] || 0) + 1;
+                    if (!displayMap[normalizedKey]) {
+                        displayMap[normalizedKey] = formatEntityDisplay(rawVal);
+                    }
+                }
+            });
+
+            return Object.keys(counts).map(key => ({
+                name: displayMap[key],
+                count: counts[key]
+            }));
+        }
+
+        function renderCharts() {
+            renderTopCustomerChart();
+            renderTopOwnerChart();
+            renderSegmentChart();
+        }
+
+        function renderTopCustomerChart() {
+            const activeData = filteredData.filter(row => row.contract_status === 'AC');
+            const sorted = countFrequencyNormalized(activeData, 'customer').sort((a, b) => b.count - a.count).slice(0, 10);
+
+            if (chartCustomer) chartCustomer.destroy();
+            const ctx = document.getElementById('chart-top-customer').getContext('2d');
+            chartCustomer = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(item => item.name),
+                    datasets: [{
+                        label: 'Kontrak AC (Active)',
+                        data: sorted.map(item => item.count),
+                        backgroundColor: 'rgba(99, 102, 241, 0.85)',
+                        borderColor: 'rgba(129, 140, 248, 1)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(51, 65, 85, 0.5)' }, ticks: { color: '#94a3b8' } },
+                        y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function renderTopOwnerChart() {
+            const activeData = filteredData.filter(row => row.contract_status === 'AC');
+            const sorted = countFrequencyNormalized(activeData, 'owner').sort((a, b) => b.count - a.count).slice(0, 10);
+
+            if (chartOwner) chartOwner.destroy();
+            const ctx = document.getElementById('chart-top-owner').getContext('2d');
+            chartOwner = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(item => item.name),
+                    datasets: [{
+                        label: 'Kontrak AC (Active)',
+                        data: sorted.map(item => item.count),
+                        backgroundColor: 'rgba(16, 185, 129, 0.85)',
+                        borderColor: 'rgba(52, 211, 153, 1)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(51, 65, 85, 0.5)' }, ticks: { color: '#94a3b8' } },
+                        y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function renderWilayahChart() {
+            const provBaseData = filteredData.filter(row => {
+                if (currentProvFilter === 'ALL') return true;
+                return row.contract_status === currentProvFilter;
+            });
+
+            const sorted = countFrequencyNormalized(provBaseData, 'lokasi').sort((a, b) => b.count - a.count).slice(0, 10);
+            const totalFiltered = provBaseData.length;
+
+            if (chartWilayah) chartWilayah.destroy();
+            const ctx = document.getElementById('chart-sebaran-wilayah').getContext('2d');
+
+            const gradientBg = ctx.createLinearGradient(0, 0, 0, 300);
+            gradientBg.addColorStop(0, 'rgba(34, 211, 238, 0.95)');
+            gradientBg.addColorStop(0.5, 'rgba(6, 182, 212, 0.80)');
+            gradientBg.addColorStop(1, 'rgba(14, 116, 144, 0.40)');
+
+            chartWilayah = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(r => r.name),
+                    datasets: [{
+                        label: 'Total Unit/Kontrak',
+                        data: sorted.map(r => r.count),
+                        backgroundColor: gradientBg,
+                        borderColor: 'rgba(103, 232, 249, 1)',
+                        borderWidth: 1.5,
+                        borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 2, bottomRight: 2 },
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    indexAxis: 'x',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const val = context.raw;
+                                    const pct = totalFiltered > 0 ? ((val / totalFiltered) * 100).toFixed(1) : 0;
+                                    return ` Total: ${val} Unit (${pct}%)`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 10, weight: '500' }, maxRotation: 45, minRotation: 0 } },
+                        y: { grid: { color: 'rgba(51, 65, 85, 0.4)' }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+        }
+
+        function renderSegmentChart() {
+            const activeData = filteredData.filter(row => row.contract_status === 'AC');
+            const rawCounts = {};
+
+            activeData.forEach(item => {
+                if (item.segment) rawCounts[item.segment] = (rawCounts[item.segment] || 0) + 1;
+            });
+
+            const totalUnits = Object.values(rawCounts).reduce((a, b) => a + b, 0);
+
+            if (totalUnits === 0) {
+                if (chartSegment) chartSegment.destroy();
+                document.getElementById('segment-legend').innerHTML = `<span class="text-slate-500 italic">Tidak ada data segment aktif</span>`;
+                return;
+            }
+
+            let groupedCounts = {};
+            let othersSum = 0;
+
+            Object.entries(rawCounts).forEach(([segName, count]) => {
+                const pct = (count / totalUnits) * 100;
+                if (pct >= 4 || segName.toLowerCase() === 'others') {
+                    groupedCounts[segName] = (groupedCounts[segName] || 0) + count;
+                } else {
+                    othersSum += count;
+                }
+            });
+
+            if (othersSum > 0) groupedCounts['Others'] = (groupedCounts['Others'] || 0) + othersSum;
+
+            const sortedSegments = Object.entries(groupedCounts).sort((a, b) => b[1] - a[1]);
+            const labels = sortedSegments.map(s => s[0]);
+            const values = sortedSegments.map(s => s[1]);
+
+            const colorPalette = {
+                'Mining': '#ec4899',
+                'Plantation': '#10b981',
+                'Forestry': '#f59e0b',
+                'Construction': '#8b5cf6',
+                'Transportation and Logistics': '#3b82f6',
+                'Others': '#06b6d4'
+            };
+
+            const bgColors = labels.map(l => colorPalette[l] || '#64748b');
+
+            if (chartSegment) chartSegment.destroy();
+            const ctx = document.getElementById('chart-segment').getContext('2d');
+            chartSegment = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: bgColors,
+                        borderWidth: 2,
+                        borderColor: '#1e293b'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    cutout: '70%'
+                }
+            });
+
+            const legendContainer = document.getElementById('segment-legend');
+            legendContainer.innerHTML = labels.map((lbl, idx) => {
+                const count = values[idx];
+                const pct = ((count / totalUnits) * 100).toFixed(1);
+                return `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full" style="background-color: ${bgColors[idx]}"></span>
+                            <span class="text-slate-300 font-medium truncate max-w-[150px]" title="${escapeHtml(lbl)}">${lbl}</span>
+                        </div>
+                        <span class="text-slate-400 font-mono">${count} unit (${pct}%)</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('table-body');
+            document.getElementById('table-row-count').innerText = `${filteredData.length} Baris`;
+
+            if (filteredData.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="12" class="px-4 py-8 text-center text-slate-500">Tidak ada data.</td></tr>`;
+                return;
+            }
+
+            const displayRows = filteredData.slice(0, 500);
+
+            let html = displayRows.map((row, index) => {
+                const statusCode = row.contract_status;
+                let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">AC (ACTIVE)</span>`;
+                if (statusCode === 'CL') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-600/30 text-slate-300 border border-slate-500/30">CL (CLOSE)</span>`;
+                else if (statusCode === 'PT') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">PT (PAID OFF)</span>`;
+                else if (statusCode === 'RP') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">RP (REPO)</span>`;
+
+                const ovdDays = row.ovd_days;
+                let ovdBadge = `<span class="font-mono text-slate-400">${ovdDays} hr</span>`;
+                if (statusCode === 'AC' && ovdDays >= 20 && ovdDays < 30) {
+                    ovdBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-orange-500/20 text-orange-300 border border-orange-500/40 font-mono">${ovdDays} hr (WARN)</span>`;
+                } else if (ovdDays > 90) {
+                    ovdBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-600/30 text-rose-300 border border-rose-500/50 font-mono">${ovdDays} hr (NPL)</span>`;
+                } else if (ovdDays >= 30) {
+                    ovdBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 font-mono">${ovdDays} hr</span>`;
+                } else if (ovdDays > 0) {
+                    ovdBadge = `<span class="font-mono text-yellow-400">${ovdDays} hr</span>`;
+                }
+
+                return `
+                <tr class="hover:bg-slate-700/40 transition">
+                    <td class="px-3 py-2.5 text-slate-400 font-mono text-[11px]">${index + 1}</td>
+                    <td class="px-3 py-2.5 font-mono text-[11px] text-cyan-400">${escapeHtml(row.no_kontrak || '-')}</td>
+                    <td class="px-3 py-2.5 font-semibold text-indigo-300">${escapeHtml(row.ca_name || '-')}</td>
+                    <td class="px-3 py-2.5 font-medium text-slate-100">${escapeHtml(formatEntityDisplay(row.customer || '-'))}</td>
+                    <td class="px-3 py-2.5 text-center">${ovdBadge}</td>
+                    <td class="px-3 py-2.5 text-center font-mono text-[11px] text-slate-300">${row.max_ovd} hr</td>
+                    <td class="px-3 py-2.5 text-slate-300">${escapeHtml(formatEntityDisplay(row.supplier || '-'))}</td>
+                    <td class="px-3 py-2.5 font-bold text-amber-300 font-mono text-[11px]">${escapeHtml(row.brand_unit || '-')}</td>
+                    <td class="px-3 py-2.5 text-indigo-300 font-mono text-[11px]">${escapeHtml(row.product || '-')}</td>
+                    <td class="px-3 py-2.5">${statusBadge}</td>
+                    <td class="px-3 py-2.5 text-amber-300">${escapeHtml(formatEntityDisplay(row.owner || '-'))}</td>
+                    <td class="px-3 py-2.5 text-cyan-300">${escapeHtml(row.lokasi || '-')}</td>
+                </tr>
+                `;
+            }).join('');
+
+            if (filteredData.length > 500) {
+                html += `<tr><td colspan="12" class="px-4 py-3 text-center text-xs text-slate-400 bg-slate-900/60">Menampilkan 500 baris pertama dari ${filteredData.length} kontrak. Gunakan filter CA / Customer atau Export CSV untuk melihat seluruh data.</td></tr>`;
+            }
+
+            tbody.innerHTML = html;
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, function(m) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+            });
+        }
+
+        function exportToCSV() {
+            if (!filteredData.length) return alert('Tidak ada data');
+            const csv = Papa.unparse(filteredData);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute('download', `Export_AR_Info_CA.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
