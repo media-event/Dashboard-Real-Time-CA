@@ -123,7 +123,7 @@
                 </div>
                 <div class="relative">
                     <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-500 text-xs"></i>
-                    <input type="text" id="search-input" onkeyup="applyFilters()" placeholder="Cari Kontrak, Cust, CA..." class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <input type="text" id="search-input" onkeyup="applyFilters()" placeholder="Cari Kontrak, Cust, Owner..." class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
                 </div>
             </div>
 
@@ -551,10 +551,15 @@
     <script>
         const SPREADSHEET_ID = '1VUCL0zZIhNrc6X3bhWJL_hIDrKnhZXJm38DPCM2YHMU';
         const GID_AR_INFO = '1098227073';
-        const GID_DATA_CREDIT = '0';
+        const SHEET_DATA_CREDIT = 'DATA CREDIT';
+        const SHEET_LOCATION_MAP = 'Location_Province_Report';
 
         let rawData = [];
-        let creditMetaMap = {};
+        let creditMetaByKontrak = {};
+        let creditMetaBySkpp = {};
+        let creditMetaByCustomer = {};
+        let cityToProvinceMap = {};
+
         let filteredData = [];
         let warningAccounts = [];
         let modalDisplayAccounts = [];
@@ -635,6 +640,11 @@
             return String(rawName).trim().replace(/\s+/g, ' ').toUpperCase();
         }
 
+        function normalizeContractKey(rawKey) {
+            if (!rawKey) return '';
+            return String(rawKey).trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        }
+
         function formatEntityDisplay(rawName) {
             if (!rawName) return '';
             let cleaned = String(rawName).trim().replace(/\s+/g, ' ');
@@ -647,6 +657,7 @@
         function normalizeSegmentName(rawSegment) {
             if (!rawSegment) return '';
             let cleaned = String(rawSegment).trim().replace(/\s+/g, ' ');
+            if (!cleaned || cleaned === '-') return '';
             const lower = cleaned.toLowerCase();
 
             if (lower.includes('transportation') || lower.includes('logistics') || lower.includes('logistik')) {
@@ -657,6 +668,7 @@
             if (lower.includes('plantation') || lower.includes('kebun')) return 'Plantation';
             if (lower.includes('forestry') || lower.includes('hutan')) return 'Forestry';
             if (lower.includes('construction') || lower.includes('konstruksi')) return 'Construction';
+            if (lower.includes('supplier')) return 'Supplier Financing';
 
             return cleaned.replace(/\w\S*/g, function(txt) {
                 return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
@@ -687,7 +699,7 @@
             return firstWord.length > 1 ? firstWord : val;
         }
 
-        async function fetchCsvRows(gid) {
+        async function fetchCsvRowsByGid(gid) {
             const bust = Date.now();
             const urls = [
                 `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}&_=${bust}`,
@@ -705,10 +717,24 @@
                         return parsed.data;
                     }
                 } catch (err) {
-                    console.warn('Percobaan fetch URL gagal:', url, err);
+                    console.warn('Percobaan fetch GID gagal:', url, err);
                 }
             }
-            throw new Error('Semua endpoint CSV gagal diakses');
+            throw new Error(`Endpoint GID ${gid} gagal diakses`);
+        }
+
+        async function fetchCsvRowsBySheetName(sheetName) {
+            const bust = Date.now();
+            const encoded = encodeURIComponent(sheetName);
+            const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encoded}&_=${bust}`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status} saat memuat sheet ${sheetName}`);
+            const csvText = await resp.text();
+            if (!csvText || csvText.trim().startsWith('<!DOCTYPE html')) {
+                throw new Error(`Respon HTML saat memuat sheet ${sheetName}`);
+            }
+            const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: 'greedy' });
+            return (parsed && parsed.data) ? parsed.data : [];
         }
 
         function findHeaderRowIndex(rows, targetKeywords) {
@@ -731,47 +757,92 @@
         }
 
         async function fetchGoogleSheetData() {
-            updateSyncUI('loading', 'Memuat Data AR Info...');
+            updateSyncUI('loading', 'Memuat AR Info & Data Credit...');
             try {
-                const arGrid = await fetchCsvRows(GID_AR_INFO);
+                const [arGrid, creditResult, locResult] = await Promise.all([
+                    fetchCsvRowsByGid(GID_AR_INFO),
+                    fetchCsvRowsBySheetName(SHEET_DATA_CREDIT).catch(err => {
+                        console.warn('Gagal memuat DATA CREDIT:', err);
+                        return [];
+                    }),
+                    fetchCsvRowsBySheetName(SHEET_LOCATION_MAP).catch(err => {
+                        console.warn('Gagal memuat Location_Province_Report:', err);
+                        return [];
+                    })
+                ]);
+
                 if (!arGrid || arGrid.length < 2) {
                     updateSyncUI('error', 'AR Info Kosong / Akses Ditolak');
                     return;
                 }
 
-                let creditGrid = [];
-                try {
-                    creditGrid = await fetchCsvRows(GID_DATA_CREDIT);
-                } catch (e) {
-                    console.warn('Metadata DATA CREDIT dilewati:', e);
-                }
+                // 1. Bangun peta City -> Province dari Location_Province_Report
+                cityToProvinceMap = {};
+                if (locResult && locResult.length > 1) {
+                    const lHdrIdx = findHeaderRowIndex(locResult, ['CITY', 'PROVINCE']);
+                    const lHeaders = locResult[lHdrIdx].map(h => String(h || '').trim().toUpperCase());
+                    const lIdxCity = findColIndex(lHeaders, [/^CITY$/], 0);
+                    const lIdxProv = findColIndex(lHeaders, [/^PROVINCE$/], 1);
 
-                creditMetaMap = {};
-                if (creditGrid && creditGrid.length > 1) {
-                    const cHdrIdx = findHeaderRowIndex(creditGrid, ['NO_KONTRAK', 'NO KONTRAK', 'NAMA_CUSTOMER']);
-                    const cHeaders = creditGrid[cHdrIdx].map(h => String(h || '').trim().toUpperCase());
-
-                    const cIdxKontrak = findColIndex(cHeaders, [/^NO_KONTRAK$/, /^NO KONTRAK$/], 0);
-                    const cIdxOwner = findColIndex(cHeaders, [/PROJECT OWNER/, /PROJECT_OWNER/], 9);
-                    const cIdxProv = findColIndex(cHeaders, [/LOKASI PROJECT/, /PROVINSI/], 12);
-                    const cIdxSeg = findColIndex(cHeaders, [/^SEGMENT$/], 13);
-
-                    for (let i = cHdrIdx + 1; i < creditGrid.length; i++) {
-                        const r = creditGrid[i];
-                        const nk = r[cIdxKontrak] ? String(r[cIdxKontrak]).trim().toUpperCase() : '';
-                        if (!nk) continue;
-                        creditMetaMap[nk] = {
-                            owner: r[cIdxOwner] ? String(r[cIdxOwner]).trim() : '',
-                            lokasi: r[cIdxProv] ? String(r[cIdxProv]).trim() : '',
-                            segment: r[cIdxSeg] ? normalizeSegmentName(r[cIdxSeg]) : ''
-                        };
+                    for (let i = lHdrIdx + 1; i < locResult.length; i++) {
+                        const r = locResult[i];
+                        const cKey = r[lIdxCity] ? normalizeEntityName(r[lIdxCity]) : '';
+                        const pVal = r[lIdxProv] ? String(r[lIdxProv]).trim() : '';
+                        if (cKey && pVal && pVal !== '-') {
+                            cityToProvinceMap[cKey] = pVal;
+                        }
                     }
                 }
 
+                // 2. Bangun metadata Project Owner, Segment, dan Provinsi dari sheet DATA CREDIT
+                creditMetaByKontrak = {};
+                creditMetaBySkpp = {};
+                creditMetaByCustomer = {};
+
+                if (creditResult && creditResult.length > 1) {
+                    const cHdrIdx = findHeaderRowIndex(creditResult, ['NO_KONTRAK', 'NO KONTRAK', 'PROJECT OWNER']);
+                    const cHeaders = creditResult[cHdrIdx].map(h => String(h || '').trim().toUpperCase());
+
+                    const cIdxKontrak = findColIndex(cHeaders, [/^NO_KONTRAK$/, /^NO KONTRAK$/], 0);
+                    const cIdxSkpp = findColIndex(cHeaders, [/^SKPP_NO$/, /^SKPP NO$/], 2);
+                    const cIdxCust = findColIndex(cHeaders, [/^NAMA_CUSTOMER$/, /^CUSTOMER$/], 3);
+                    const cIdxOwner = findColIndex(cHeaders, [/^PROJECT OWNER$/, /^PROJECT_OWNER$/], 9);
+                    const cIdxProv = findColIndex(cHeaders, [/LOKASI PROJECT \(PROVINSI\)/, /PROVINSI/], 12);
+                    const cIdxSeg = findColIndex(cHeaders, [/^SEGMENT$/], 13);
+
+                    for (let i = cHdrIdx + 1; i < creditResult.length; i++) {
+                        const r = creditResult[i];
+                        const nkRaw = r[cIdxKontrak] ? String(r[cIdxKontrak]).trim() : '';
+                        const nk = normalizeContractKey(nkRaw);
+                        const skppKey = r[cIdxSkpp] ? normalizeEntityName(r[cIdxSkpp]) : '';
+                        const custKey = r[cIdxCust] ? normalizeEntityName(r[cIdxCust]) : '';
+
+                        const ownerVal = r[cIdxOwner] ? String(r[cIdxOwner]).trim() : '';
+                        const provVal = r[cIdxProv] ? String(r[cIdxProv]).trim() : '';
+                        const segVal = r[cIdxSeg] ? normalizeSegmentName(r[cIdxSeg]) : '';
+
+                        const metaObj = {
+                            owner: ownerVal && ownerVal !== '-' ? ownerVal : '',
+                            lokasi: provVal && provVal !== '-' ? provVal : '',
+                            segment: segVal
+                        };
+
+                        if (nk) creditMetaByKontrak[nk] = metaObj;
+                        if (skppKey && skppKey !== '-' && !creditMetaBySkpp[skppKey] && (metaObj.owner || metaObj.segment)) {
+                            creditMetaBySkpp[skppKey] = metaObj;
+                        }
+                        if (custKey && custKey !== '-' && !creditMetaByCustomer[custKey] && (metaObj.owner || metaObj.segment)) {
+                            creditMetaByCustomer[custKey] = metaObj;
+                        }
+                    }
+                }
+
+                // 3. Parse baris utama dari AR Info
                 const aHdrIdx = findHeaderRowIndex(arGrid, ['NO_KONTRAK', 'NAMA_CUSTOMER', 'AF_KONTRAK', 'AFOUT']);
                 const aHeaders = arGrid[aHdrIdx].map(h => String(h || '').trim().toUpperCase());
 
                 const idxKontrak = findColIndex(aHeaders, [/^NO_KONTRAK$/, /^NO KONTRAK$/], 2);
+                const idxSkpp = findColIndex(aHeaders, [/^SKPP_NO$/, /^SKPP NO$/], 3);
                 const idxCust = findColIndex(aHeaders, [/^NAMA_CUSTOMER$/, /^CUSTOMER$/], 4);
                 const idxObj = findColIndex(aHeaders, [/^OBJ$/, /^PRODUCT$/], 5);
                 const idxBtm = findColIndex(aHeaders, [/^BTM$/, /^BRAND$/], 6);
@@ -793,23 +864,36 @@
                     const noKontrak = r[idxKontrak] ? String(r[idxKontrak]).trim() : '';
                     if (!noKontrak || noKontrak.toUpperCase() === 'NO_KONTRAK') continue;
 
-                    const meta = creditMetaMap[noKontrak.toUpperCase()] || {};
+                    const nkKey = normalizeContractKey(noKontrak);
+                    const skppRaw = r[idxSkpp] ? String(r[idxSkpp]).trim() : '';
+                    const custRaw = r[idxCust] ? String(r[idxCust]).trim() : '';
+
+                    const metaExact = creditMetaByKontrak[nkKey] || {};
+                    const metaSkpp = creditMetaBySkpp[normalizeEntityName(skppRaw)] || {};
+                    const metaCust = creditMetaByCustomer[normalizeEntityName(custRaw)] || {};
+
+                    const resolvedOwner = metaExact.owner || metaSkpp.owner || metaCust.owner || '';
+                    const resolvedSegment = metaExact.segment || metaSkpp.segment || metaCust.segment || '';
+
+                    const cityRaw = r[idxCity] ? String(r[idxCity]).trim() : '';
+                    const mappedProvFromCity = cityRaw ? (cityToProvinceMap[normalizeEntityName(cityRaw)] || '') : '';
+                    const resolvedLokasi = metaExact.lokasi || metaSkpp.lokasi || mappedProvFromCity || (cityRaw && cityRaw !== '-' ? cityRaw : 'Lainnya');
+
                     const caRaw = r[idxCa] ? String(r[idxCa]).trim() : '';
                     const suppRaw = r[idxSupplier] ? String(r[idxSupplier]).trim() : '';
-                    const cityRaw = r[idxCity] ? String(r[idxCity]).trim() : '';
                     const objRaw = r[idxObj] ? String(r[idxObj]).trim() : '';
                     const ovdDays = parseNumberOnly(r[idxOvdDays]);
 
                     parsedRows.push({
                         no_kontrak: noKontrak,
                         ca_name: caRaw && caRaw !== '-' ? caRaw : 'Unassigned',
-                        customer: r[idxCust] ? String(r[idxCust]).trim() : '',
+                        customer: custRaw,
                         supplier: suppRaw && suppRaw !== '-' ? suppRaw : '',
                         product: objRaw && objRaw !== '-' ? objRaw : 'OTHER',
                         brand_unit: extractBrandName(r[idxBtm]),
-                        owner: meta.owner || '',
-                        lokasi: meta.lokasi || (cityRaw && cityRaw !== '-' ? cityRaw : 'Lainnya'),
-                        segment: meta.segment || '',
+                        owner: resolvedOwner,
+                        lokasi: resolvedLokasi,
+                        segment: resolvedSegment,
                         ovd_days: ovdDays,
                         max_ovd: parseNumberOnly(r[idxMaxOvd]),
                         tot_ovd: parseNumberOnly(r[idxTotOvd]),
@@ -824,7 +908,8 @@
                 }
 
                 rawData = parsedRows;
-                updateSyncUI('success', `Live AR Info: ${rawData.length} Kontrak`);
+                const mappedCount = rawData.filter(d => d.owner || d.segment).length;
+                updateSyncUI('success', `Live AR Info: ${rawData.length} Kr (${mappedCount} Bowheer)`);
                 processDataAndRender();
             } catch (err) {
                 console.error('Sync Error:', err);
@@ -1229,7 +1314,7 @@
 
             filteredData.forEach(row => {
                 if (row.customer) uniqueCustomers.add(normalizeEntityName(row.customer));
-                if (row.owner) uniqueOwners.add(normalizeEntityName(row.owner));
+                if (row.owner && row.owner !== '-') uniqueOwners.add(normalizeEntityName(row.owner));
 
                 const yr = extractYearFromRow(row);
                 const afNumRow = row.af_kontrak_num;
@@ -1594,7 +1679,7 @@
 
             dataArray.forEach(item => {
                 const rawVal = item[propName];
-                if (rawVal && rawVal !== '-') {
+                if (rawVal && rawVal !== '-' && rawVal !== 'Lainnya') {
                     const normalizedKey = normalizeEntityName(rawVal);
                     counts[normalizedKey] = (counts[normalizedKey] || 0) + 1;
                     if (!displayMap[normalizedKey]) {
@@ -1774,6 +1859,7 @@
                 'Forestry': '#f59e0b',
                 'Construction': '#8b5cf6',
                 'Transportation and Logistics': '#3b82f6',
+                'Supplier Financing': '#14b8a6',
                 'Others': '#06b6d4'
             };
 
